@@ -417,6 +417,15 @@ export async function PATCH(
         ? "partial"
         : "pending";
 
+    // Calculate max possible score
+    const { data: templateQuestions } = await supabaseServer
+      .from("student_responses")
+      .select("max_possible_score")
+      .eq("exam_session_id", sessionId)
+      .single();
+
+    const maxScore = templateQuestions?.max_possible_score || 0;
+
     // Update student_responses with graded answers
     await supabaseServer
       .from("student_responses")
@@ -427,10 +436,28 @@ export async function PATCH(
       })
       .eq("exam_session_id", sessionId);
 
-    // Update exam_sessions with total score
+    // Update exam_sessions with total score, max score, and completion status
+    const examSessionUpdate: {
+      total_score: number;
+      max_score?: number;
+      status?: string;
+    } = {
+      total_score: totalScore,
+    };
+
+    // Only update max_score if we have a valid value
+    if (maxScore > 0) {
+      examSessionUpdate.max_score = maxScore;
+    }
+
+    // Update status to completed only when grading is fully completed
+    if (gradingStatus === "completed") {
+      examSessionUpdate.status = "completed";
+    }
+
     await supabase
       .from("exam_sessions")
-      .update({ total_score: totalScore })
+      .update(examSessionUpdate)
       .eq("id", sessionId);
 
     return NextResponse.json({

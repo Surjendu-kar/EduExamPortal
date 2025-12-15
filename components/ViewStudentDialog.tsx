@@ -40,6 +40,7 @@ interface Student {
     status: string;
     start_time?: string;
     end_time?: string;
+    completion_status?: string; // 'completed', 'pending', 'expired'
   }>;
 }
 
@@ -195,31 +196,55 @@ export const ViewStudentDialog = ({
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
-                  {student.assignedExamsList.map((exam) => (
-                    <div
-                      key={exam.id}
-                      className="flex flex-col p-3 border rounded-md hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <p className="font-medium text-sm line-clamp-1 flex-1" title={exam.exam_title}>
-                          {exam.exam_title}
-                        </p>
-                        <Badge
-                          variant={exam.status === 'active' ? 'default' : 'secondary'}
-                          className="text-xs shrink-0"
-                        >
-                          {exam.status}
-                        </Badge>
+                  {student.assignedExamsList.map((exam) => {
+                    // Determine badge styling based on completion status
+                    const completionStatus = exam.completion_status || 'pending';
+                    const badgeConfig = {
+                      completed: {
+                        variant: 'default' as const,
+                        className: 'bg-green-100 text-green-800 border-green-200',
+                        text: 'Completed'
+                      },
+                      pending: {
+                        variant: 'secondary' as const,
+                        className: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+                        text: 'Pending'
+                      },
+                      expired: {
+                        variant: 'destructive' as const,
+                        className: 'bg-red-100 text-red-800 border-red-200',
+                        text: 'Expired'
+                      }
+                    };
+
+                    const config = badgeConfig[completionStatus as keyof typeof badgeConfig] || badgeConfig.pending;
+
+                    return (
+                      <div
+                        key={exam.id}
+                        className="flex flex-col p-3 border rounded-md hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <p className="font-medium text-sm line-clamp-1 flex-1" title={exam.exam_title}>
+                            {exam.exam_title}
+                          </p>
+                          <Badge
+                            variant={config.variant}
+                            className={`text-xs shrink-0 ${config.className}`}
+                          >
+                            {config.text}
+                          </Badge>
+                        </div>
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {exam.start_time
+                            ? new Date(exam.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : new Date(exam.assigned_at).toLocaleDateString()
+                          }
+                        </span>
                       </div>
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {exam.start_time
-                          ? new Date(exam.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                          : new Date(exam.assigned_at).toLocaleDateString()
-                        }
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

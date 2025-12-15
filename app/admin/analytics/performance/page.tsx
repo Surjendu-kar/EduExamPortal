@@ -148,8 +148,20 @@ export default function PerformancePage() {
           return;
         }
 
+        // Get department ID from localStorage for filtering
+        const departmentId = localStorage.getItem("activeDepartmentId");
+
+        // Build query params
+        const params = new URLSearchParams();
+        params.append("institution_id", institutionId);
+
+        // Always send department_id (backend will handle "all" case)
+        if (departmentId) {
+          params.append("department_id", departmentId);
+        }
+
         const response = await fetch(
-          `/api/admin/analytics/performance?institution_id=${institutionId}`
+          `/api/admin/analytics/performance?${params.toString()}`
         );
 
         if (!response.ok) {
@@ -157,13 +169,6 @@ export default function PerformancePage() {
         }
 
         const performanceData = await response.json();
-        console.log("=== Performance Page Debug ===");
-        console.log("Institution ID:", institutionId);
-        console.log("API Response:", performanceData);
-        console.log("Overview:", performanceData.overview);
-        console.log("Score Distribution:", performanceData.scoreDistribution);
-        console.log("Top Performers:", performanceData.topPerformers);
-        console.log("============================");
         setData(performanceData);
       } catch (err) {
         console.error("Error fetching performance data:", err);
@@ -177,14 +182,16 @@ export default function PerformancePage() {
 
     fetchData();
 
-    const handleInstitutionChange = () => {
+    // Listen ONLY for department changes
+    // Institution changes always trigger department changes, so we don't need both
+    const handleDepartmentChange = () => {
       fetchData();
     };
 
-    window.addEventListener("institutionChanged", handleInstitutionChange);
+    window.addEventListener("departmentChanged", handleDepartmentChange);
 
     return () => {
-      window.removeEventListener("institutionChanged", handleInstitutionChange);
+      window.removeEventListener("departmentChanged", handleDepartmentChange);
     };
   }, []);
 
@@ -352,8 +359,8 @@ export default function PerformancePage() {
                       cy="45%"
                       labelLine={false}
                       label={(props: any) => {
-                        const { type, percentage } = props;
-                        return `${type}: ${percentage}%`;
+                        const { payload } = props;
+                        return `${payload.type}: ${payload.percentage}%`;
                       }}
                       outerRadius={95}
                       dataKey="percentage"
@@ -387,74 +394,143 @@ export default function PerformancePage() {
         </motion.div>
       </div>
 
-      {/* Department Performance */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.4 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle>Department Performance</CardTitle>
-            <CardDescription>
-              Average scores and attempts by department
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {data.departmentPerformance.length > 0 ? (
-              <ResponsiveContainer width="100%" height={350}>
-                <BarChart
-                  data={data.departmentPerformance}
-                  margin={{ top: 10, right: 10, left: 0, bottom: 60 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis
-                    dataKey="name"
-                    angle={-45}
-                    textAnchor="end"
-                    height={80}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                      color: "hsl(var(--foreground))",
-                    }}
-                    labelStyle={{
-                      color: "hsl(var(--foreground))",
-                      fontWeight: "600",
-                    }}
-                    itemStyle={{
-                      color: "hsl(var(--foreground))",
-                    }}
-                  />
-                  <Legend />
-                  <Bar
-                    dataKey="averageScore"
-                    fill={COLORS.success}
-                    radius={[4, 4, 0, 0]}
-                    name="Average Score (%)"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[350px] flex items-center justify-center text-muted-foreground">
-                No department data available
+      {/* Department Performance & Grading Status */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.4 }}
+        >
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle>Department Performance</CardTitle>
+              <CardDescription>
+                Average scores and attempts by department
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data.departmentPerformance.length > 0 ? (
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart
+                    data={data.departmentPerformance}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 60 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis
+                      dataKey="name"
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "8px",
+                        color: "hsl(var(--foreground))",
+                      }}
+                      labelStyle={{
+                        color: "hsl(var(--foreground))",
+                        fontWeight: "600",
+                      }}
+                      itemStyle={{
+                        color: "hsl(var(--foreground))",
+                      }}
+                    />
+                    <Legend />
+                    <Bar
+                      dataKey="averageScore"
+                      fill={COLORS.success}
+                      radius={[4, 4, 0, 0]}
+                      name="Average Score (%)"
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[350px] flex items-center justify-center text-muted-foreground">
+                  No department data available
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.5 }}
+        >
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle>Grading Status</CardTitle>
+              <CardDescription>
+                Current status of exam grading across the institution
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Pending</p>
+                      <p className="text-2xl font-bold">
+                        {data.gradingStatus.pending}
+                      </p>
+                    </div>
+                    <AlertCircle className="h-8 w-8 text-orange-600" />
+                  </div>
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Partial</p>
+                      <p className="text-2xl font-bold">
+                        {data.gradingStatus.partial}
+                      </p>
+                    </div>
+                    <Clock className="h-8 w-8 text-blue-600" />
+                  </div>
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Completed</p>
+                      <p className="text-2xl font-bold">
+                        {data.gradingStatus.completed}
+                      </p>
+                    </div>
+                    <CheckCircle2 className="h-8 w-8 text-green-600" />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      Grading Progress
+                    </span>
+                    <span className="font-semibold">{gradingProgress}%</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div
+                      className="bg-green-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${gradingProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {data.gradingStatus.completed} of {totalGrading} submissions
+                    graded
+                  </p>
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
 
       {/* Exam Difficulty & Top Performers */}
       <div className="grid gap-4 md:grid-cols-2">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.5 }}
+          transition={{ duration: 0.4, delay: 0.6 }}
         >
           <Card>
             <CardHeader>
@@ -521,7 +597,7 @@ export default function PerformancePage() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.6 }}
+          transition={{ duration: 0.4, delay: 0.7 }}
         >
           <Card>
             <CardHeader>
@@ -597,74 +673,6 @@ export default function PerformancePage() {
           </Card>
         </motion.div>
       </div>
-
-      {/* Grading Status */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.7 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle>Grading Status</CardTitle>
-            <CardDescription>
-              Current status of exam grading across the institution
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Pending</p>
-                    <p className="text-2xl font-bold">
-                      {data.gradingStatus.pending}
-                    </p>
-                  </div>
-                  <AlertCircle className="h-8 w-8 text-orange-600" />
-                </div>
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Partial</p>
-                    <p className="text-2xl font-bold">
-                      {data.gradingStatus.partial}
-                    </p>
-                  </div>
-                  <Clock className="h-8 w-8 text-blue-600" />
-                </div>
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Completed</p>
-                    <p className="text-2xl font-bold">
-                      {data.gradingStatus.completed}
-                    </p>
-                  </div>
-                  <CheckCircle2 className="h-8 w-8 text-green-600" />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    Grading Progress
-                  </span>
-                  <span className="font-semibold">{gradingProgress}%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2">
-                  <div
-                    className="bg-green-600 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${gradingProgress}%` }}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {data.gradingStatus.completed} of {totalGrading} submissions
-                  graded
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
     </motion.div>
   );
 }

@@ -1,5 +1,6 @@
 // app/api/exams/route.ts
 import { createRouteClient } from '@/lib/supabaseRouteClient';
+import { supabaseServer } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 
 const convertLocalToUTCISO = (localDatetimeString: string): string | null => {
@@ -100,17 +101,21 @@ export async function GET(request: NextRequest) {
         ]);
 
         const totalQuestions = (mcqCount.count || 0) + (saqCount.count || 0) + (codingCount.count || 0);
-        
-        // Get assigned students count
-        const { count: assignedStudents } = await supabase
-          .from('student_invitations')
-          .select('id', { count: 'exact', head: true })
-          .eq('exam_id', exam.id);
+
+        // Get assigned students count from student_exam_assignments table
+        // Use service role client to bypass RLS after authentication
+        const { data: assignmentData } = await supabaseServer
+          .from('student_exam_assignments')
+          .select('id, status')
+          .eq('exam_id', exam.id)
+          .eq('status', 'active');
+
+        const activeCount = assignmentData?.length || 0;
 
         return {
           ...exam,
           totalQuestions,
-          assignedStudents: assignedStudents || 0,
+          assignedStudents: activeCount || 0,
           status: exam.status || (
             exam.end_time && new Date(exam.end_time) < new Date() 
               ? 'archived' 

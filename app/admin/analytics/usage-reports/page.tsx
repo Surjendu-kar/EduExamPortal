@@ -148,8 +148,20 @@ export default function UsageReportsPage() {
           return;
         }
 
+        // Get department ID from localStorage for filtering
+        const departmentId = localStorage.getItem("activeDepartmentId");
+
+        // Build query params
+        const params = new URLSearchParams();
+        params.append("institution_id", institutionId);
+
+        // Always send department_id (backend will handle "all" case)
+        if (departmentId) {
+          params.append("department_id", departmentId);
+        }
+
         const response = await fetch(
-          `/api/admin/analytics/usage-reports?institution_id=${institutionId}`
+          `/api/admin/analytics/usage-reports?${params.toString()}`
         );
 
         if (!response.ok) {
@@ -159,6 +171,7 @@ export default function UsageReportsPage() {
         const reportsData = await response.json();
         console.log("=== Usage Reports Page Debug ===");
         console.log("Institution ID:", institutionId);
+        console.log("Department ID:", departmentId);
         console.log("API Response:", reportsData);
         console.log("Activity Metrics:", reportsData.activityMetrics);
         console.log("Daily Activity:", reportsData.dailyActivity);
@@ -177,14 +190,16 @@ export default function UsageReportsPage() {
 
     fetchData();
 
-    const handleInstitutionChange = () => {
+    // Listen ONLY for department changes
+    // Institution changes always trigger department changes, so we don't need both
+    const handleDepartmentChange = () => {
       fetchData();
     };
 
-    window.addEventListener("institutionChanged", handleInstitutionChange);
+    window.addEventListener("departmentChanged", handleDepartmentChange);
 
     return () => {
-      window.removeEventListener("institutionChanged", handleInstitutionChange);
+      window.removeEventListener("departmentChanged", handleDepartmentChange);
     };
   }, []);
 
@@ -407,8 +422,8 @@ export default function UsageReportsPage() {
             </CardHeader>
             <CardContent>
               {data.teacherActivity.length > 0 ? (
-                <div className="rounded-md border overflow-hidden">
-                  <div className="max-h-[400px] overflow-auto">
+                <div className="h-[200px] rounded-md border overflow-hidden">
+                  <div className="h-full overflow-auto">
                     <Table>
                       <TableHeader className="sticky top-0 bg-muted/90 backdrop-blur-sm z-10">
                         <TableRow>
@@ -445,7 +460,7 @@ export default function UsageReportsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-center py-8 text-muted-foreground">
+                <div className="h-[200px] flex items-center justify-center text-muted-foreground">
                   No teacher activity data
                 </div>
               )}
@@ -502,7 +517,7 @@ export default function UsageReportsPage() {
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-[400px] flex items-center justify-center text-muted-foreground">
+                <div className="h-[200px] flex items-center justify-center text-muted-foreground">
                   No violation data available
                 </div>
               )}
@@ -526,8 +541,8 @@ export default function UsageReportsPage() {
                 Sessions terminated due to violations
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-center py-12">
+            <CardContent className="h-[200px]">
+              <div className="h-full flex items-center justify-center">
                 <div className="text-center">
                   <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-red-100 dark:bg-red-900/20 mb-4">
                     <XCircle className="h-10 w-10 text-red-600" />
@@ -557,8 +572,8 @@ export default function UsageReportsPage() {
                 Student invitation status breakdown
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
+            <CardContent className="h-[200px]">
+              <div className="h-full flex flex-col justify-center space-y-4">
                 <div className="grid gap-3 grid-cols-3">
                   <div className="text-center p-3 border rounded-lg">
                     <Clock className="h-5 w-5 mx-auto mb-1 text-orange-600" />

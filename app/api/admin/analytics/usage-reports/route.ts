@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createRouteClient } from "@/lib/supabaseRouteClient";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,9 +27,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Get institution_id from query params
+    // Get institution_id and department_id from query params
     const { searchParams } = new URL(request.url);
     const institutionId = searchParams.get("institution_id");
+    const departmentId = searchParams.get("department_id"); // Optional department filter
 
     if (!institutionId) {
       return NextResponse.json(
@@ -38,7 +40,8 @@ export async function GET(request: NextRequest) {
     }
 
     // 1. Activity Metrics
-    const { data: allSessions } = await supabase
+    // Use supabaseServer to bypass RLS since we've already verified admin role
+    let allSessionsQuery = supabaseServer
       .from("exam_sessions")
       .select(
         `
@@ -47,11 +50,22 @@ export async function GET(request: NextRequest) {
         start_time,
         violations_count,
         exams!inner (
-          institution_id
+          institution_id,
+          department_id
         )
       `
       )
       .eq("exams.institution_id", institutionId);
+
+    // Add department filter if specified
+    if (departmentId && departmentId !== "all") {
+      allSessionsQuery = allSessionsQuery.eq(
+        "exams.department_id",
+        departmentId
+      );
+    }
+
+    const { data: allSessions } = await allSessionsQuery;
 
     const totalExamAttempts = allSessions?.length || 0;
 
@@ -70,18 +84,29 @@ export async function GET(request: NextRequest) {
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
-    const { data: recentResponses } = await supabase
+    let recentResponsesQuery = supabaseServer
       .from("student_responses")
       .select(
         `
         submitted_at,
         exams!inner (
-          institution_id
+          institution_id,
+          department_id
         )
       `
       )
       .eq("exams.institution_id", institutionId)
       .gte("submitted_at", oneWeekAgo.toISOString());
+
+    // Add department filter if specified
+    if (departmentId && departmentId !== "all") {
+      recentResponsesQuery = recentResponsesQuery.eq(
+        "exams.department_id",
+        departmentId
+      );
+    }
+
+    const { data: recentResponses } = await recentResponsesQuery;
 
     const submissionsThisWeek = recentResponses?.length || 0;
 
@@ -99,18 +124,29 @@ export async function GET(request: NextRequest) {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const { data: recentSessions } = await supabase
+    let recentSessionsQuery = supabaseServer
       .from("exam_sessions")
       .select(
         `
         start_time,
         exams!inner (
-          institution_id
+          institution_id,
+          department_id
         )
       `
       )
       .eq("exams.institution_id", institutionId)
       .gte("start_time", thirtyDaysAgo.toISOString());
+
+    // Add department filter if specified
+    if (departmentId && departmentId !== "all") {
+      recentSessionsQuery = recentSessionsQuery.eq(
+        "exams.department_id",
+        departmentId
+      );
+    }
+
+    const { data: recentSessions } = await recentSessionsQuery;
 
     // Group by date
     const dailyActivityMap = new Map<string, number>();
@@ -145,22 +181,36 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => a.hour.localeCompare(b.hour));
 
     // 4. Teacher Activity
-    const { data: teachers } = await supabase
+    let teachersQuery = supabaseServer
       .from("user_profiles")
-      .select("id, full_name, email, created_at")
+      .select("id, first_name, last_name, email, created_at, department_id")
       .eq("role", "teacher")
       .eq("institution_id", institutionId);
+
+    // Add department filter if specified
+    if (departmentId && departmentId !== "all") {
+      teachersQuery = teachersQuery.eq("department_id", departmentId);
+    }
+
+    const { data: teachers } = await teachersQuery;
 
     const teacherActivity = await Promise.all(
       (teachers || []).map(async (teacher) => {
         // Count exams created by this teacher
-        const { data: exams } = await supabase
+        let examsQuery = supabaseServer
           .from("exams")
           .select("id")
           .eq("created_by", teacher.id);
 
+        // Add department filter if specified
+        if (departmentId && departmentId !== "all") {
+          examsQuery = examsQuery.eq("department_id", departmentId);
+        }
+
+        const { data: exams } = await examsQuery;
+
         // Count students invited
-        const { data: invitations } = await supabase
+        const { data: invitations } = await supabaseServer
           .from("student_invitations")
           .select("id")
           .in(
@@ -168,8 +218,12 @@ export async function GET(request: NextRequest) {
             exams?.map((e) => e.id) || []
           );
 
+        const fullName = `${teacher.first_name || ""} ${
+          teacher.last_name || ""
+        }`.trim() || "Unknown";
+
         return {
-          name: teacher.full_name || "Unknown",
+          name: fullName,
           email: teacher.email,
           examsCreated: exams?.length || 0,
           studentsInvited: invitations?.length || 0,
@@ -182,19 +236,30 @@ export async function GET(request: NextRequest) {
     teacherActivity.sort((a, b) => b.examsCreated - a.examsCreated);
 
     // 5. Proctoring Violations
-    const { data: violations } = await supabase
+    let violationsQuery = supabaseServer
       .from("proctoring_logs")
       .select(
         `
         violation_type,
         exam_sessions!inner (
           exams!inner (
-            institution_id
+            institution_id,
+            department_id
           )
         )
       `
       )
       .eq("exam_sessions.exams.institution_id", institutionId);
+
+    // Add department filter if specified
+    if (departmentId && departmentId !== "all") {
+      violationsQuery = violationsQuery.eq(
+        "exam_sessions.exams.department_id",
+        departmentId
+      );
+    }
+
+    const { data: violations } = await violationsQuery;
 
     const violationCounts = new Map<string, number>();
 
@@ -216,17 +281,28 @@ export async function GET(request: NextRequest) {
     const examTerminations = terminatedSessions.length;
 
     // 7. Invitation Statistics
-    const { data: studentInvitations } = await supabase
+    let studentInvitationsQuery = supabaseServer
       .from("student_invitations")
       .select(
         `
         status,
         exams!inner (
-          institution_id
+          institution_id,
+          department_id
         )
       `
       )
       .eq("exams.institution_id", institutionId);
+
+    // Add department filter if specified
+    if (departmentId && departmentId !== "all") {
+      studentInvitationsQuery = studentInvitationsQuery.eq(
+        "exams.department_id",
+        departmentId
+      );
+    }
+
+    const { data: studentInvitations } = await studentInvitationsQuery;
 
     const invitationStats = {
       pending: 0,

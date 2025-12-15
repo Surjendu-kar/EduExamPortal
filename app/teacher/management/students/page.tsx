@@ -147,6 +147,9 @@ interface ExamAssignment {
   exam_title: string;
   assigned_at: string;
   status: string;
+  start_time?: string;
+  end_time?: string;
+  completion_status?: string; // 'completed', 'pending', 'expired'
 }
 
 interface StudentInvitation {
@@ -174,6 +177,8 @@ interface StudentInvitation {
     email: string;
   };
   assigned_exams?: ExamAssignment[];
+  average_score?: number;
+  completed_exams?: number;
 }
 
 export default function TeacherStudentsPage() {
@@ -201,6 +206,7 @@ export default function TeacherStudentsPage() {
     department: string;
     selectedExam: string;
     selectedExams?: string[]; // Array of currently assigned exam IDs
+    completedExams?: string[]; // Array of completed exam IDs (cannot be unassigned)
     expirationDate: string;
   } | null>(null);
 
@@ -317,10 +323,16 @@ export default function TeacherStudentsPage() {
       const assignedExamsList = invitation.assigned_exams || [];
       const assignedExamsCount = assignedExamsList.length;
 
-      // For backward compatibility, get first exam title if exists
-      const firstExamTitle = assignedExamsList.length > 0
-        ? assignedExamsList[0].exam_title
-        : "No exam assigned";
+      // Count completed exams from completion_status
+      const completedFromAssignments = assignedExamsList.filter(
+        exam => exam.completion_status === 'completed'
+      ).length;
+
+      // Build display string for assigned exams - always show X/Y format
+      let assignedExamDisplay = "0/0";
+      if (assignedExamsCount > 0) {
+        assignedExamDisplay = `${completedFromAssignments}/${assignedExamsCount}`;
+      }
 
       return {
         id: invitation.id,
@@ -328,16 +340,14 @@ export default function TeacherStudentsPage() {
         email: invitation.student_email,
         status: displayStatus,
         assignedExams: assignedExamsCount,
-        completedExams: 0,
-        averageScore: 0,
+        completedExams: invitation.completed_exams || 0,
+        averageScore: invitation.average_score || 0,
         dateJoined: new Date(invitation.created_at),
         invitedBy: invitation.teacher?.email || "Unknown",
         profileImage: undefined,
         studentId: invitation.id.slice(0, 8).toUpperCase(),
         department: invitation.departments?.name || "Not assigned",
-        assignedExam: assignedExamsCount > 1
-          ? `${assignedExamsCount} exams`
-          : firstExamTitle,
+        assignedExam: assignedExamDisplay,
         departmentId: invitation.departments?.id || "",
         examId: assignedExamsList.length > 0 ? assignedExamsList[0].exam_id : "",
         assignedExamsList: assignedExamsList,
@@ -472,6 +482,7 @@ export default function TeacherStudentsPage() {
     const [firstName, lastName] = student.name.split(" ");
     // Extract exam IDs from assignedExamsList
     const assignedExamIds = student.assignedExamsList?.map(exam => exam.exam_id) || [];
+    const completedExamIds = student.assignedExamsList?.filter(exam => exam.completion_status === 'completed').map(exam => exam.exam_id) || [];
 
     setEditingStudent({
       id: student.id,
@@ -481,6 +492,7 @@ export default function TeacherStudentsPage() {
       department: student.departmentId || "",
       selectedExam: student.examId || "",
       selectedExams: assignedExamIds, // Pass the array of assigned exam IDs
+      completedExams: completedExamIds, // Pass the array of completed exam IDs
       expirationDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
         .toISOString()
         .split("T")[0],
@@ -927,7 +939,7 @@ export default function TeacherStudentsPage() {
                         onClick={() => handleSort("assignedExam")}
                       >
                         <div className="flex items-center space-x-2">
-                          <span>Assigned Exam</span>
+                          <span>Exam Progress</span>
                           <ArrowUpDown className="h-4 w-4" />
                         </div>
                       </TableHead>

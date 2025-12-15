@@ -14,6 +14,7 @@ interface ExamData {
 interface ExamAssignmentRaw {
   id: string;
   student_email: string;
+  student_id: string | null;
   exam_id: string;
   assigned_at: string;
   status: string;
@@ -28,6 +29,7 @@ interface AssignmentInfo {
   status: string;
   start_time?: string;
   end_time?: string;
+  completion_status?: string; // 'completed', 'pending', 'expired'
 }
 
 // Generate a secure token for student invitations
@@ -351,7 +353,25 @@ export async function GET(req: Request) {
 
     // Fetch exam assignments for each student
     const studentEmails = [...new Set(invitations?.map(inv => inv.student_email).filter(Boolean))];
+    const studentIds = [...new Set(invitations?.map(inv => inv.student_id).filter(Boolean))];
     const assignmentsMap: Record<string, AssignmentInfo[]> = {};
+
+    // Fetch exam sessions to determine completion status
+    const completedExamsMap: Record<string, Set<string>> = {};
+    if (studentIds.length > 0) {
+      const { data: sessions } = await supabase
+        .from('exam_sessions')
+        .select('user_id, exam_id, status')
+        .in('user_id', studentIds)
+        .eq('status', 'completed');
+
+      sessions?.forEach(session => {
+        if (!completedExamsMap[session.user_id]) {
+          completedExamsMap[session.user_id] = new Set();
+        }
+        completedExamsMap[session.user_id].add(session.exam_id);
+      });
+    }
 
     if (studentEmails.length > 0) {
       const { data: assignments, error: assignmentsError } = await supabase
@@ -359,6 +379,7 @@ export async function GET(req: Request) {
         .select(`
           id,
           student_email,
+          student_id,
           exam_id,
           assigned_at,
           status,
@@ -386,6 +407,18 @@ export async function GET(req: Request) {
           ? assignment.exams[0]
           : assignment.exams;
 
+        // Check if this exam is completed by the student
+        const studentId = assignment.student_id;
+        const isCompleted = studentId && completedExamsMap[studentId]?.has(assignment.exam_id);
+
+        // Determine completion status
+        let completionStatus = 'pending';
+        if (isCompleted) {
+          completionStatus = 'completed';
+        } else if (examData?.end_time && new Date(examData.end_time) < new Date()) {
+          completionStatus = 'expired';
+        }
+
         assignmentsMap[assignment.student_email].push({
           id: assignment.id,
           exam_id: assignment.exam_id,
@@ -393,16 +426,56 @@ export async function GET(req: Request) {
           assigned_at: assignment.assigned_at,
           status: assignment.status,
           start_time: examData?.start_time,
-          end_time: examData?.end_time
+          end_time: examData?.end_time,
+          completion_status: completionStatus
         });
       });
     }
 
-    // Enrich invitations with teacher data and exam assignments
+    // Fetch student exam results to calculate average scores
+    const resultsMap: Record<string, { averageScore: number; completedExams: number }> = {};
+
+    if (studentEmails.length > 0) {
+      const { data: results, error: resultsError } = await supabase
+        .from('student_responses')
+        .select('student_email, total_score, max_possible_score, grading_status')
+        .in('student_email', studentEmails)
+        .eq('grading_status', 'completed');
+
+      if (resultsError) {
+        console.error('Error fetching student results:', resultsError);
+      }
+
+      // Calculate average score for each student
+      results?.forEach(result => {
+        if (!resultsMap[result.student_email]) {
+          resultsMap[result.student_email] = { averageScore: 0, completedExams: 0 };
+        }
+
+        // Calculate percentage for this exam
+        const percentage = result.max_possible_score > 0
+          ? (result.total_score / result.max_possible_score) * 100
+          : 0;
+
+        // Add to running total
+        const current = resultsMap[result.student_email];
+        const totalExams = current.completedExams + 1;
+        const newAverage = ((current.averageScore * current.completedExams) + percentage) / totalExams;
+
+        resultsMap[result.student_email] = {
+          averageScore: Math.round(newAverage * 10) / 10, // Round to 1 decimal place
+          completedExams: totalExams
+        };
+      });
+    }
+
+    // Enrich invitations with teacher data, exam assignments, and average scores
     const enrichedInvitations = invitations?.map(invitation => ({
       ...invitation,
       teacher: teachersMap[invitation.teacher_id] || null,
-      assigned_exams: assignmentsMap[invitation.student_email] || []
+      assigned_exams: assignmentsMap[invitation.student_email] || [],
+      average_score: resultsMap[invitation.student_email]?.averageScore || 0,
+      completed_exams: resultsMap[invitation.student_email]?.completedExams || 0
     }));
 
     return NextResponse.json(enrichedInvitations);

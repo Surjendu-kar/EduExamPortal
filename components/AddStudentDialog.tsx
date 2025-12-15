@@ -67,6 +67,7 @@ interface AddStudentDialogProps {
     department: string;
     selectedExam: string;
     selectedExams?: string[]; // Array of currently assigned exam IDs
+    completedExams?: string[]; // Array of completed exam IDs (cannot be unassigned)
     expirationDate: string;
   } | null;
   isOpen?: boolean;
@@ -614,7 +615,11 @@ export const AddStudentDialog = ({
                       <label
                         key={exam.id}
                         htmlFor={`exam-${exam.id}`}
-                        className="flex items-start space-x-2 p-2.5 border rounded-md hover:bg-muted/50 hover:border-primary/50 transition-all cursor-pointer"
+                        className={`flex items-start space-x-2 p-2.5 border rounded-md transition-all ${
+                          editStudent?.completedExams?.includes(exam.id)
+                            ? 'opacity-60 cursor-not-allowed bg-muted/30'
+                            : 'hover:bg-muted/50 hover:border-primary/50 cursor-pointer'
+                        }`}
                       >
                         <Checkbox
                           id={`exam-${exam.id}`}
@@ -634,15 +639,22 @@ export const AddStudentDialog = ({
                               }));
                             }
                           }}
-                          disabled={isSubmitting}
+                          disabled={isSubmitting || editStudent?.completedExams?.includes(exam.id)}
                           className="mt-0.5"
                         />
                         <div className="flex-1 leading-tight">
-                          <div
-                            className="text-sm font-medium line-clamp-2"
-                            title={exam.title}
-                          >
-                            {exam.title}
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="text-sm font-medium line-clamp-2"
+                              title={exam.title}
+                            >
+                              {exam.title}
+                            </div>
+                            {editStudent?.completedExams?.includes(exam.id) && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-medium shrink-0">
+                                Completed
+                              </span>
+                            )}
                           </div>
                           {exam.start_time && (
                             <div className="text-xs text-muted-foreground mt-1">

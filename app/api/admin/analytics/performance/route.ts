@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createRouteClient } from "@/lib/supabaseRouteClient";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,9 +27,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Get institution_id from query params
+    // Get institution_id and department_id from query params
     const { searchParams } = new URL(request.url);
     const institutionId = searchParams.get("institution_id");
+    const departmentId = searchParams.get("department_id"); // Optional department filter
 
     if (!institutionId) {
       return NextResponse.json(
@@ -38,7 +40,8 @@ export async function GET(request: NextRequest) {
     }
 
     // 1. Get overview metrics
-    const { data: examSessions } = await supabase
+    // Use supabaseServer to bypass RLS since we've already verified admin role
+    let examSessionsQuery = supabaseServer
       .from("exam_sessions")
       .select(
         `
@@ -57,6 +60,16 @@ export async function GET(request: NextRequest) {
       `
       )
       .eq("exams.institution_id", institutionId);
+
+    // Add department filter if specified
+    if (departmentId && departmentId !== "all") {
+      examSessionsQuery = examSessionsQuery.eq(
+        "exams.department_id",
+        departmentId
+      );
+    }
+
+    const { data: examSessions, error: sessionsError } = await examSessionsQuery;
 
     const completedSessions =
       examSessions?.filter((s) => s.status === "completed") || [];
@@ -161,14 +174,21 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => parseFloat(a.averageScore) - parseFloat(b.averageScore));
 
     // 4. Department Performance
-    const { data: departments } = await supabase
+    let departmentsQuery = supabaseServer
       .from("departments")
       .select("id, name")
       .eq("institution_id", institutionId);
 
+    // If a specific department is selected, only show that department
+    if (departmentId && departmentId !== "all") {
+      departmentsQuery = departmentsQuery.eq("id", departmentId);
+    }
+
+    const { data: departments } = await departmentsQuery;
+
     const departmentPerformance = await Promise.all(
       (departments || []).map(async (dept) => {
-        const { data: deptSessions } = await supabase
+        const { data: deptSessions } = await supabaseServer
           .from("exam_sessions")
           .select(
             `
@@ -204,16 +224,23 @@ export async function GET(request: NextRequest) {
     );
 
     // 5. Question Type Performance
-    // Get all questions for exams in this institution
-    const { data: examsInInstitution } = await supabase
+    // Get all questions for exams in this institution (and department if specified)
+    let examsQuery = supabaseServer
       .from("exams")
       .select("id")
       .eq("institution_id", institutionId);
 
+    // Add department filter if specified
+    if (departmentId && departmentId !== "all") {
+      examsQuery = examsQuery.eq("department_id", departmentId);
+    }
+
+    const { data: examsInInstitution } = await examsQuery;
+
     const examIds = examsInInstitution?.map((e) => e.id) || [];
 
     // MCQ performance
-    const { data: mcqData } = await supabase
+    const { data: mcqData } = await supabaseServer
       .from("mcq")
       .select("marks, marks_obtained")
       .in("exam_id", examIds)
@@ -225,7 +252,7 @@ export async function GET(request: NextRequest) {
     const mcqPercentage = mcqTotal > 0 ? (mcqObtained / mcqTotal) * 100 : 0;
 
     // SAQ performance
-    const { data: saqData } = await supabase
+    const { data: saqData } = await supabaseServer
       .from("saq")
       .select("marks, marks_obtained")
       .in("exam_id", examIds)
@@ -237,7 +264,7 @@ export async function GET(request: NextRequest) {
     const saqPercentage = saqTotal > 0 ? (saqObtained / saqTotal) * 100 : 0;
 
     // Coding performance
-    const { data: codingData } = await supabase
+    const { data: codingData } = await supabaseServer
       .from("coding")
       .select("marks, marks_obtained")
       .in("exam_id", examIds)
@@ -269,17 +296,28 @@ export async function GET(request: NextRequest) {
     ].filter((qt) => qt.count > 0);
 
     // 6. Grading Status
-    const { data: studentResponses } = await supabase
+    let studentResponsesQuery = supabaseServer
       .from("student_responses")
       .select(
         `
         grading_status,
         exams!inner (
-          institution_id
+          institution_id,
+          department_id
         )
       `
       )
       .eq("exams.institution_id", institutionId);
+
+    // Add department filter if specified
+    if (departmentId && departmentId !== "all") {
+      studentResponsesQuery = studentResponsesQuery.eq(
+        "exams.department_id",
+        departmentId
+      );
+    }
+
+    const { data: studentResponses } = await studentResponsesQuery;
 
     const gradingCounts = {
       pending: 0,
@@ -294,7 +332,7 @@ export async function GET(request: NextRequest) {
     });
 
     // 7. Top Performing Students
-    const { data: topStudents } = await supabase
+    let topStudentsQuery = supabaseServer
       .from("exam_sessions")
       .select(
         `
@@ -303,16 +341,28 @@ export async function GET(request: NextRequest) {
         max_score,
         user_profiles!inner (
           id,
-          full_name,
+          first_name,
+          last_name,
           email
         ),
         exams!inner (
-          institution_id
+          institution_id,
+          department_id
         )
       `
       )
       .eq("exams.institution_id", institutionId)
       .eq("status", "completed");
+
+    // Add department filter if specified
+    if (departmentId && departmentId !== "all") {
+      topStudentsQuery = topStudentsQuery.eq(
+        "exams.department_id",
+        departmentId
+      );
+    }
+
+    const { data: topStudents } = await topStudentsQuery;
 
     // Group by student and calculate average
     const studentStats = new Map();
@@ -320,9 +370,12 @@ export async function GET(request: NextRequest) {
     topStudents?.forEach((session) => {
       const userId = session.user_id;
       if (!studentStats.has(userId)) {
+        const fullName = `${session.user_profiles.first_name || ""} ${
+          session.user_profiles.last_name || ""
+        }`.trim() || "Unknown";
         studentStats.set(userId, {
           userId,
-          name: session.user_profiles.full_name || "Unknown",
+          name: fullName,
           email: session.user_profiles.email,
           totalScore: 0,
           maxScore: 0,
