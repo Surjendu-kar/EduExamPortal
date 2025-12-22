@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer as supabase } from "@/lib/supabase/server";
 import { createRouteClient } from "@/lib/supabaseRouteClient";
 import nodemailer from 'nodemailer';
+import { renderEmailTemplate, type EmailTemplate } from '@/lib/email/renderTemplate';
 
 // Type definitions
 interface ExamData {
@@ -45,13 +46,16 @@ function generateInvitationToken(): string {
 // Send invitation email
 async function sendStudentInvitationEmail(
   email: string,
+  firstName: string,
+  lastName: string,
   examTitle: string,
   token: string,
   expiresAt: Date,
+  userId: string,
   hasExams: boolean = true
 ): Promise<void> {
   const signupUrl = `${process.env.NEXT_PUBLIC_APP_URL}/student-invitation/${token}`;
-  
+
   // Format expiration date
   const expirationDate = new Date(expiresAt).toLocaleDateString('en-US', {
     year: 'numeric',
@@ -60,7 +64,7 @@ async function sendStudentInvitationEmail(
     hour: '2-digit',
     minute: '2-digit'
   });
-  
+
   // Create transporter using environment variables
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -72,11 +76,121 @@ async function sendStudentInvitationEmail(
     },
   });
 
-  const mailOptions = {
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to: email,
-    subject: `You're Invited to Take: ${examTitle}`,
-    html: `
+  let subject = `You're Invited to Take: ${examTitle}`;
+  let html = '';
+
+  try {
+    // Fetch user's active email template
+    const { data: userProfile } = await supabase
+      .from('user_profiles')
+      .select('active_invitation_template_id')
+      .eq('id', userId)
+      .single();
+
+    let template: EmailTemplate | null = null;
+
+    if (userProfile?.active_invitation_template_id) {
+      // Fetch the active template
+      const { data: templateData } = await supabase
+        .from('email_templates')
+        .select('*')
+        .eq('id', userProfile.active_invitation_template_id)
+        .single();
+
+      if (templateData) {
+        template = templateData as EmailTemplate;
+      }
+    }
+
+    // If no active template, try to fetch a default template
+    if (!template) {
+      const { data: defaultTemplate } = await supabase
+        .from('email_templates')
+        .select('*')
+        .eq('is_default', true)
+        .eq('template_type', 'student_invitation')
+        .single();
+
+      if (defaultTemplate) {
+        template = defaultTemplate as EmailTemplate;
+      }
+    }
+
+    // If we have a template, use it
+    if (template) {
+      const rendered = renderEmailTemplate(template, {
+        firstName,
+        lastName,
+        examTitle: hasExams ? examTitle : 'No exams assigned yet',
+        institutionName: 'EduExamPortal',
+        expirationDate,
+        inviteUrl: signupUrl,
+      });
+
+      subject = rendered.subject;
+      html = rendered.html;
+    } else {
+      // Fallback to hardcoded email
+      html = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+              .button { display: inline-block; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+              .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
+              .exam-info { background: white; padding: 15px; border-left: 4px solid #667eea; margin: 20px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1 style="margin: 0; font-size: 28px; font-weight: bold;">EduExamPortal</h1>
+                <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">🎓 Exam Invitation</p>
+              </div>
+              <div class="content">
+                <h2>Hello ${firstName} ${lastName}!</h2>
+                <p>You've been invited to join <strong>EduExamPortal</strong> as a student.</p>
+
+                ${hasExams ? `
+                <div class="exam-info">
+                  <h3>📝 ${examTitle}</h3>
+                  <p style="margin: 0; color: #666; font-size: 14px;">Your teacher has assigned the above exam(s) to you.</p>
+                </div>
+                ` : `
+                <div class="exam-info" style="background: #f0f9ff; border-left: 4px solid #3b82f6;">
+                  <h3>📚 Getting Started</h3>
+                  <p style="margin: 0; color: #666; font-size: 14px;">Your teacher will assign exams to you after you create your account. You'll be notified when exams become available.</p>
+                </div>
+                `}
+
+                <p>To accept this invitation and create your student account, please click the button below:</p>
+
+                <div style="text-align: center;">
+                  <a href="${signupUrl}" class="button" style="color: #FFFFFF;">Accept Invitation & Create Account</a>
+                </div>
+
+                <p>Or copy and paste this link into your browser:</p>
+                <p style="word-break: break-all; color: #667eea;">${signupUrl}</p>
+
+                <p><strong>Note:</strong> This invitation link will expire on ${expirationDate}.</p>
+              </div>
+              <div class="footer">
+                <p>If you didn't expect this invitation, you can safely ignore this email.</p>
+                <p style="margin-top: 10px;"><strong>EduExamPortal</strong> - Online Examination Platform</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+    }
+  } catch (error) {
+    console.error('Error fetching email template, using fallback:', error);
+    // Fallback to hardcoded email
+    html = `
       <!DOCTYPE html>
       <html>
         <head>
@@ -97,7 +211,7 @@ async function sendStudentInvitationEmail(
               <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">🎓 Exam Invitation</p>
             </div>
             <div class="content">
-              <h2>Hello!</h2>
+              <h2>Hello ${firstName} ${lastName}!</h2>
               <p>You've been invited to join <strong>EduExamPortal</strong> as a student.</p>
 
               ${hasExams ? `
@@ -113,14 +227,14 @@ async function sendStudentInvitationEmail(
               `}
 
               <p>To accept this invitation and create your student account, please click the button below:</p>
-              
+
               <div style="text-align: center;">
                 <a href="${signupUrl}" class="button" style="color: #FFFFFF;">Accept Invitation & Create Account</a>
               </div>
-              
+
               <p>Or copy and paste this link into your browser:</p>
               <p style="word-break: break-all; color: #667eea;">${signupUrl}</p>
-              
+
               <p><strong>Note:</strong> This invitation link will expire on ${expirationDate}.</p>
             </div>
             <div class="footer">
@@ -130,7 +244,14 @@ async function sendStudentInvitationEmail(
           </div>
         </body>
       </html>
-    `,
+    `;
+  }
+
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: email,
+    subject,
+    html,
   };
 
   await transporter.sendMail(mailOptions);
@@ -241,7 +362,7 @@ async function createStudentInvitation(
 
     // Send invitation email
     try {
-      await sendStudentInvitationEmail(email, examTitle, token, expirationDate, hasExams);
+      await sendStudentInvitationEmail(email, firstName, lastName, examTitle, token, expirationDate, teacherId, hasExams);
     } catch (emailError) {
       console.error('Error sending invitation email:', emailError);
       // Don't fail the invitation creation if email fails

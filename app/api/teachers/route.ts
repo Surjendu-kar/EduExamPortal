@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer as supabase } from "@/lib/supabase/server";
 import { createRouteClient } from "@/lib/supabaseRouteClient";
 import nodemailer from 'nodemailer';
+import { renderEmailTemplate, type EmailTemplate } from '@/lib/email/renderTemplate';
 
 // Generate a secure token for teacher invitations
 function generateInvitationToken(): string {

@@ -306,6 +306,75 @@ create table public.proctoring_logs (
 );
 ```
 
+## email_templates Table
+```sql
+create table public.email_templates (
+  id uuid not null default gen_random_uuid (),
+  template_name text not null,
+  template_type text not null,
+  description text null,
+  subject text not null,
+  main_message text not null,
+  created_by uuid not null,
+  role text not null,
+  is_default boolean not null default false,
+  created_at timestamp with time zone not null default now(),
+  updated_at timestamp with time zone not null default now(),
+  visibility text not null default 'private'::text,
+  allowed_user_ids jsonb null default '[]'::jsonb,
+  constraint email_templates_pkey primary key (id),
+  constraint unique_default_template_per_type unique (template_type, is_default, role),
+  constraint email_templates_created_by_fkey foreign KEY (created_by) references auth.users (id) on delete CASCADE,
+  constraint email_templates_role_check check (
+    (
+      role = any (
+        array['admin'::text, 'teacher'::text, 'student'::text]
+      )
+    )
+  ),
+  constraint email_templates_type_check check (
+    (
+      template_type = any (
+        array[
+          'student_invitation'::text,
+          'exam_reminder'::text,
+          'results_notification'::text,
+          'teacher_invitation'::text
+        ]
+      )
+    )
+  ),
+  constraint email_templates_visibility_check check (
+    (
+      visibility = any (
+        array['public'::text, 'private'::text, 'custom'::text]
+      )
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_email_templates_type on public.email_templates using btree (template_type) TABLESPACE pg_default;
+
+create index IF not exists idx_email_templates_created_by on public.email_templates using btree (created_by) TABLESPACE pg_default;
+
+create index IF not exists idx_email_templates_is_default on public.email_templates using btree (is_default) TABLESPACE pg_default;
+
+create index IF not exists idx_email_templates_role on public.email_templates using btree (role) TABLESPACE pg_default;
+
+create index IF not exists idx_email_templates_visibility on public.email_templates using btree (visibility) TABLESPACE pg_default;
+
+create index IF not exists idx_email_templates_allowed_users on public.email_templates using gin (allowed_user_ids) TABLESPACE pg_default;
+
+create unique INDEX IF not exists idx_email_templates_public_name on public.email_templates using btree (template_name) TABLESPACE pg_default
+where
+  (visibility = 'public'::text);
+
+create trigger update_email_templates_updated_at BEFORE
+update on email_templates for EACH row
+execute FUNCTION update_updated_at_column ();
+```
+
+
 ## 4. Enable Row Level Security
 
 ```sql
@@ -320,6 +389,7 @@ alter table public.saq enable row level security;
 alter table public.coding enable row level security;
 alter table public.student_responses enable row level security;
 alter table public.proctoring_logs enable row level security;
+alter table public.email_templates enable row level security;
 ```
 
 ## 5. Row Level Security Policies
@@ -796,6 +866,115 @@ create policy "Proctoring logs insertable by session owner" on public.proctoring
     )
   );
 ```
+
+### Email Templates Policies
+
+```sql
+-- Teachers can view accessible templates
+-- Teachers can see:
+--   - Their own templates
+--   - Default templates matching their role
+--   - Public templates (non-default)
+--   - Custom templates they're allowed to see
+create policy "Teachers can view accessible templates" on public.email_templates
+  for select using (
+    -- Own templates (created by the user)
+    auth.uid() = created_by
+    or
+    -- System default templates (only if role matches)
+    (
+      is_default = true
+      and role = (select role from user_profiles where id = auth.uid() limit 1)
+    )
+    or
+    -- Public templates (non-default, shared by other users)
+    (
+      visibility = 'public'
+      and is_default = false
+    )
+    or
+    -- Custom visibility templates (user is in allowed_user_ids list)
+    (
+      visibility = 'custom'
+      and allowed_user_ids @> to_jsonb(auth.uid()::text)
+    )
+  );
+
+-- Admins can view ALL templates
+create policy "Admins can view all email templates" on public.email_templates
+  for select using (
+    exists (
+      select 1 from user_profiles
+      where id = auth.uid() and role = 'admin'
+    )
+  );
+
+-- Teachers and Admins can create templates
+create policy "Teachers and admins can create templates" on public.email_templates
+  for insert with check (
+    auth.uid() = created_by
+    and exists (
+      select 1 from user_profiles
+      where id = auth.uid()
+      and role in ('admin', 'teacher')
+    )
+    and is_default = false  -- Users cannot create default templates (only system can)
+  );
+
+-- Users can update their OWN non-default templates
+create policy "Users can update own non-default templates" on public.email_templates
+  for update using (
+    auth.uid() = created_by
+    and is_default = false  -- CRITICAL: Cannot edit default templates
+  )
+  with check (
+    auth.uid() = created_by
+    and is_default = false  -- Ensure is_default remains false
+  );
+
+-- Admins can update ANY template (including defaults)
+create policy "Admins can update all templates" on public.email_templates
+  for update using (
+    exists (
+      select 1 from user_profiles
+      where id = auth.uid() and role = 'admin'
+    )
+  )
+  with check (
+    exists (
+      select 1 from user_profiles
+      where id = auth.uid() and role = 'admin'
+    )
+  );
+
+-- Users can delete their OWN non-default templates
+create policy "Users can delete own non-default templates" on public.email_templates
+  for delete using (
+    auth.uid() = created_by
+    and is_default = false  -- CRITICAL: Cannot delete default templates
+  );
+
+-- Admins can delete ANY non-default template
+-- Note: Even admins cannot delete default templates
+create policy "Admins can delete all non-default templates" on public.email_templates
+  for delete using (
+    is_default = false  -- Even admins cannot delete default templates
+    and exists (
+      select 1 from user_profiles
+      where id = auth.uid() and role = 'admin'
+    )
+  );
+```
+
+**Important Notes:**
+- Default templates (`is_default = true`):
+  - Admins **CAN EDIT** them (for system maintenance)
+  - Nobody can **DELETE** them (including admins)
+- Teachers can only edit/delete templates they created
+- Admins can edit ANY template (including defaults)
+- Admins can delete ANY non-default template
+- Public templates can be VIEWED by everyone but EDITED only by creator/admin
+- Custom visibility uses JSONB containment operator (`@>`)
 
 ---
 

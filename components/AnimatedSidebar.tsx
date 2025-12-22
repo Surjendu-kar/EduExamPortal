@@ -239,6 +239,10 @@ const NAV_ITEMS: Record<string, NavItem[]> = {
           title: "Backup",
           url: "/admin/settings/backup",
         },
+        {
+          title: "Email Templates",
+          url: "/admin/settings/email-templates",
+        },
       ],
     },
   ],
@@ -274,6 +278,17 @@ const NAV_ITEMS: Record<string, NavItem[]> = {
         {
           title: "Exam Results",
           url: "/teacher/analytics/results",
+        },
+      ],
+    },
+    {
+      title: "Settings",
+      url: "/teacher/settings",
+      icon: Settings2,
+      items: [
+        {
+          title: "Email Templates",
+          url: "/teacher/settings/email-templates",
         },
       ],
     },
