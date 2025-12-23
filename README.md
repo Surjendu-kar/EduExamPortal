@@ -2,7 +2,7 @@
 
 **EduExamPortal** is a comprehensive online examination platform built for educational institutions to create, manage, and grade exams with support for multiple question types, multi-tenant architecture, and role-based access control.
 
-[![Next.js](https://img.shields.io/badge/Next.js-15.5-black?style=flat&logo=next.js)](https://nextjs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-15.5.4-black?style=flat&logo=next.js)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19.1-blue?style=flat&logo=react)](https://reactjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat&logo=typescript)](https://www.typescriptlang.org/)
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-green?style=flat&logo=supabase)](https://supabase.com/)
@@ -139,7 +139,7 @@
 ## 🛠️ Tech Stack
 
 ### **Framework & Language**
-- [Next.js 15](https://nextjs.org/) - React framework with App Router
+- [Next.js 15.5.4](https://nextjs.org/) - React framework with App Router
 - [React 19](https://reactjs.org/) - UI library
 - [TypeScript 5](https://www.typescriptlang.org/) - Type safety
 
