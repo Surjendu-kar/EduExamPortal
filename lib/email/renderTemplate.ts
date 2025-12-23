@@ -5,6 +5,9 @@ export interface TemplateVariables {
   institutionName?: string;
   expirationDate: string;
   inviteUrl: string;
+  invitedBy?: string;
+  departmentName?: string;
+  teacherName?: string;
 }
 
 export interface EmailTemplate {
@@ -27,19 +30,41 @@ export function renderEmailTemplate(
   subject: string;
   html: string;
 } {
+  // Build full name for convenience
+  const fullName = `${capitalizeWords(variables.firstName)} ${capitalizeWords(variables.lastName)}`;
+
   const replacements: Record<string, string> = {
+    // Single brace format
     '{firstName}': capitalizeWords(variables.firstName),
     '{lastName}': capitalizeWords(variables.lastName),
     '{examTitle}': variables.examTitle ? capitalizeWords(variables.examTitle) : '',
     '{institutionName}': variables.institutionName || '',
     '{expirationDate}': variables.expirationDate,
     '{inviteUrl}': variables.inviteUrl,
+    '{invitedBy}': variables.invitedBy || '',
+    '{departmentName}': variables.departmentName || '',
+    '{teacherName}': fullName,
+    // Double brace format (for backward compatibility)
+    '{{firstName}}': capitalizeWords(variables.firstName),
+    '{{lastName}}': capitalizeWords(variables.lastName),
+    '{{examTitle}}': variables.examTitle ? capitalizeWords(variables.examTitle) : '',
+    '{{institutionName}}': variables.institutionName || 'institution_name',
+    '{{expirationDate}}': variables.expirationDate,
+    '{{inviteUrl}}': variables.inviteUrl,
+    '{{invitedBy}}': variables.invitedBy || 'invited_by',
+    '{{departmentName}}': variables.departmentName || 'department_name',
+    '{{teacher_name}}': fullName,
+    '{{invited_by}}': variables.invitedBy || 'Admin',
+    '{{institution_name}}': variables.institutionName || 'Our Institution',
+    '{{department_name}}': variables.departmentName || 'Not assigned',
   };
 
   const replaceVariables = (text: string): string => {
     let result = text;
     Object.entries(replacements).forEach(([key, value]) => {
-      result = result.replace(new RegExp(key.replace(/[{}]/g, '\\$&'), 'g'), value);
+      // Escape special regex characters in the key
+      const escapedKey = key.replace(/[{}]/g, '\\$&');
+      result = result.replace(new RegExp(escapedKey, 'g'), value);
     });
     return result;
   };

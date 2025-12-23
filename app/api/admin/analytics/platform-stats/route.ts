@@ -1,9 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createRouteClient } from "@/lib/supabaseRouteClient";
 
+interface UserGrowthRecord {
+  created_at: string;
+  role: string;
+}
+
+interface ExamWithDepartment {
+  id: string;
+  department_id: string;
+  departments: {
+    id: string;
+    name: string;
+  }[] | null;
+}
+
+interface Department {
+  id: string;
+  name: string;
+}
+
 // Helper function to group users by day or month based on granularity
 function processUserGrowth(
-  users: any[],
+  users: UserGrowthRecord[],
   granularity: "daily" | "monthly" = "monthly"
 ) {
   const data: { [key: string]: { students: number; teachers: number } } = {};
@@ -257,9 +276,9 @@ export async function GET(request: NextRequest) {
     const departmentCounts: { [key: string]: { name: string; count: number } } =
       {};
 
-    (examsByDept || []).forEach((exam: any) => {
+    (examsByDept || []).forEach((exam: ExamWithDepartment) => {
       const deptId = exam.department_id;
-      const deptName = exam.departments?.name || "Unknown";
+      const deptName = exam.departments?.[0]?.name || "Unknown";
 
       if (!departmentCounts[deptId]) {
         departmentCounts[deptId] = { name: deptName, count: 0 };
@@ -329,7 +348,7 @@ export async function GET(request: NextRequest) {
 
     // Get student and teacher counts per department
     const departmentOverview = await Promise.all(
-      (departments || []).map(async (dept: any) => {
+      (departments || []).map(async (dept: Department) => {
         const { count: deptStudents } = await supabase
           .from("user_profiles")
           .select("*", { count: "exact", head: true })

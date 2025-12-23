@@ -30,6 +30,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  PieLabelRenderProps,
 } from "recharts";
 import {
   TrendingUp,
@@ -358,8 +359,8 @@ export default function PerformancePage() {
                       cx="50%"
                       cy="45%"
                       labelLine={false}
-                      label={(props: any) => {
-                        const { payload } = props;
+                      label={(props: PieLabelRenderProps) => {
+                        const payload = props.payload as { type: string; percentage: number };
                         return `${payload.type}: ${payload.percentage}%`;
                       }}
                       outerRadius={95}
@@ -375,9 +376,10 @@ export default function PerformancePage() {
                     <Legend
                       verticalAlign="bottom"
                       height={36}
-                      formatter={(value, entry: any) => {
+                      formatter={(value, entry) => {
+                        const payload = entry.payload as unknown as { type: string };
                         const item = data.questionTypePerformance.find(
-                          (d) => d.type === entry.payload.type
+                          (d) => d.type === payload?.type
                         );
                         return `${value} (${item?.count || 0} questions)`;
                       }}

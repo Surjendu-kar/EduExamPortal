@@ -13,20 +13,11 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { WarningDialog } from "@/components/WarningDialog";
 import { EmailTemplateDialog } from "@/components/EmailTemplateDialog";
+import { EmailTemplateFilters } from "@/components/email-temp/EmailTemplateFilters";
 import {
-  Plus,
-  Search,
   Mail,
   Pencil,
   Trash2,
@@ -38,39 +29,13 @@ import {
   Loader2,
   UserX,
 } from "lucide-react";
-
-interface EmailTemplate {
-  id: string;
-  template_name: string;
-  template_type: string;
-  description?: string;
-  subject: string;
-  header_text: string;
-  header_subtitle?: string;
-  greeting: string;
-  main_message: string;
-  exam_info_text?: string;
-  button_text: string;
-  footer_note?: string;
-  visibility: "public" | "private" | "custom";
-  allowed_user_ids?: string[];
-  is_default: boolean;
-  role: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-  creator?: {
-    id: string;
-    first_name: string;
-    last_name: string;
-    email: string;
-    deleted: boolean;
-  };
-}
+import { EmailTemplate } from "@/types/email-template";
 
 export default function AdminEmailTemplatesPage() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
-  const [filteredTemplates, setFilteredTemplates] = useState<EmailTemplate[]>([]);
+  const [filteredTemplates, setFilteredTemplates] = useState<EmailTemplate[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
@@ -78,9 +43,19 @@ export default function AdminEmailTemplatesPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editTemplate, setEditTemplate] = useState<EmailTemplate | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [templateToDelete, setTemplateToDelete] = useState<EmailTemplate | null>(null);
-  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+  const [templateToDelete, setTemplateToDelete] =
+    useState<EmailTemplate | null>(null);
+  const [activeTemplateIds, setActiveTemplateIds] = useState<
+    Record<string, string | null>
+  >({
+    student_invitation_with_exam: null,
+    student_invitation_general: null,
+    teacher_invitation: null,
+    exam_reminder: null,
+    results_notification: null,
+  });
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [settingActiveId, setSettingActiveId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTemplates();
@@ -94,7 +69,9 @@ export default function AdminEmailTemplatesPage() {
 
   const fetchCurrentUser = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user) {
         setCurrentUserId(user.id);
       }
@@ -123,18 +100,40 @@ export default function AdminEmailTemplatesPage() {
 
   const fetchActiveTemplate = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user) {
         const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('active_invitation_template_id')
-          .eq('id', user.id)
+          .from("user_profiles")
+          .select(
+            `
+            active_student_invitation_with_exam_template_id,
+            active_student_invitation_general_template_id,
+            active_teacher_invitation_template_id,
+            active_exam_reminder_template_id,
+            active_results_notification_template_id
+          `
+          )
+          .eq("id", user.id)
           .single();
 
-        setActiveTemplateId(profile?.active_invitation_template_id || null);
+        if (profile) {
+          setActiveTemplateIds({
+            student_invitation_with_exam:
+              profile.active_student_invitation_with_exam_template_id || null,
+            student_invitation_general:
+              profile.active_student_invitation_general_template_id || null,
+            teacher_invitation:
+              profile.active_teacher_invitation_template_id || null,
+            exam_reminder: profile.active_exam_reminder_template_id || null,
+            results_notification:
+              profile.active_results_notification_template_id || null,
+          });
+        }
       }
     } catch (error) {
-      console.error("Error fetching active template:", error);
+      console.error("Error fetching active templates:", error);
     }
   };
 
@@ -156,18 +155,26 @@ export default function AdminEmailTemplatesPage() {
 
     // Filter by type
     if (filterType !== "all") {
-      filtered = filtered.filter((template) => template.template_type === filterType);
+      filtered = filtered.filter(
+        (template) => template.template_type === filterType
+      );
     }
 
     // Filter by visibility
     if (filterVisibility !== "all") {
-      filtered = filtered.filter((template) => template.visibility === filterVisibility);
+      filtered = filtered.filter(
+        (template) => template.visibility === filterVisibility
+      );
     }
 
     setFilteredTemplates(filtered);
   };
 
   const handleCreateTemplate = async (template: EmailTemplate) => {
+    const loadingToast = toast.loading("Creating email template...", {
+      duration: Infinity,
+    });
+
     try {
       const response = await fetch("/api/email-templates", {
         method: "POST",
@@ -178,19 +185,37 @@ export default function AdminEmailTemplatesPage() {
       const data = await response.json();
 
       if (response.ok) {
-        toast.success("Email template created successfully");
+        toast.success("Email template created successfully", {
+          id: loadingToast,
+          duration: 4000,
+        });
         fetchTemplates();
         return { success: true };
       } else {
-        return { success: false, error: data.error || "Failed to create template" };
+        toast.error(data.error || "Failed to create template", {
+          id: loadingToast,
+          duration: 4000,
+        });
+        return {
+          success: false,
+          error: data.error || "Failed to create template",
+        };
       }
     } catch (error) {
       console.error("Error creating template:", error);
+      toast.error("An unexpected error occurred", {
+        id: loadingToast,
+        duration: 4000,
+      });
       return { success: false, error: "An unexpected error occurred" };
     }
   };
 
   const handleEditTemplate = async (template: EmailTemplate) => {
+    const loadingToast = toast.loading("Updating email template...", {
+      duration: Infinity,
+    });
+
     try {
       const response = await fetch(`/api/email-templates/${template.id}`, {
         method: "PUT",
@@ -201,15 +226,29 @@ export default function AdminEmailTemplatesPage() {
       const data = await response.json();
 
       if (response.ok) {
-        toast.success("Email template updated successfully");
+        toast.success("Email template updated successfully", {
+          id: loadingToast,
+          duration: 4000,
+        });
         fetchTemplates();
         setEditTemplate(null);
         return { success: true };
       } else {
-        return { success: false, error: data.error || "Failed to update template" };
+        toast.error(data.error || "Failed to update template", {
+          id: loadingToast,
+          duration: 4000,
+        });
+        return {
+          success: false,
+          error: data.error || "Failed to update template",
+        };
       }
     } catch (error) {
       console.error("Error updating template:", error);
+      toast.error("An unexpected error occurred", {
+        id: loadingToast,
+        duration: 4000,
+      });
       return { success: false, error: "An unexpected error occurred" };
     }
   };
@@ -218,9 +257,12 @@ export default function AdminEmailTemplatesPage() {
     if (!templateToDelete) return;
 
     try {
-      const response = await fetch(`/api/email-templates/${templateToDelete.id}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `/api/email-templates/${templateToDelete.id}`,
+        {
+          method: "DELETE",
+        }
+      );
 
       if (response.ok) {
         toast.success("Email template deleted successfully");
@@ -237,59 +279,79 @@ export default function AdminEmailTemplatesPage() {
     }
   };
 
-  const handleSetActiveTemplate = async (templateId: string) => {
+  const handleSetActiveTemplate = async (
+    templateId: string,
+    templateType: string
+  ) => {
+    setSettingActiveId(templateId);
+    const loadingToast = toast.loading("Setting as active template...", {
+      duration: Infinity,
+    });
+
     try {
-      const response = await fetch(`/api/email-templates/${templateId}/set-active`, {
-        method: "POST",
-      });
+      const response = await fetch(
+        `/api/email-templates/${templateId}/set-active`,
+        {
+          method: "POST",
+        }
+      );
 
       const data = await response.json();
 
       if (response.ok) {
-        toast.success("Active template updated successfully");
-        setActiveTemplateId(templateId);
+        toast.success("Active template updated successfully", {
+          id: loadingToast,
+          duration: 4000,
+        });
+        // Update the active template ID for this specific type
+        setActiveTemplateIds((prev) => ({
+          ...prev,
+          [templateType]: templateId,
+        }));
         fetchActiveTemplate();
       } else {
-        toast.error(data.error || "Failed to set active template");
+        toast.error(data.error || "Failed to set active template", {
+          id: loadingToast,
+          duration: 4000,
+        });
       }
     } catch (error) {
       console.error("Error setting active template:", error);
-      toast.error("An error occurred while setting active template");
+      toast.error("An error occurred while setting active template", {
+        id: loadingToast,
+        duration: 4000,
+      });
+    } finally {
+      setSettingActiveId(null);
     }
   };
 
   const getVisibilityIcon = (visibility: string) => {
     switch (visibility) {
       case "public":
-        return <Globe className="h-3 w-3" />;
+        return <Globe className="h-4 w-4" />;
       case "custom":
-        return <Users className="h-3 w-3" />;
+        return <Users className="h-4 w-4" />;
       case "private":
       default:
-        return <Lock className="h-3 w-3" />;
-    }
-  };
-
-  const getVisibilityLabel = (visibility: string) => {
-    switch (visibility) {
-      case "public":
-        return "Public";
-      case "custom":
-        return "Custom";
-      case "private":
-      default:
-        return "Private";
+        return <Lock className="h-4 w-4" />;
     }
   };
 
   const getTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
-      student_invitation: "Student Invitation",
+      student_invitation: "Student Invitation", // Legacy
+      student_invitation_with_exam: "Student Invitation (With Exam)",
+      student_invitation_general: "Student Invitation (General)",
       teacher_invitation: "Teacher Invitation",
       exam_reminder: "Exam Reminder",
       results_notification: "Results Notification",
     };
     return labels[type] || type;
+  };
+
+  const isTemplateActive = (template: EmailTemplate) => {
+    return activeTemplateIds[template.template_type] === template.id;
   };
 
   const canEditTemplate = (template: EmailTemplate) => {
@@ -306,73 +368,39 @@ export default function AdminEmailTemplatesPage() {
 
   const canSetActiveTemplate = (template: EmailTemplate) => {
     // Get user role from localStorage
-    const userRole = localStorage.getItem('userRole')?.toLowerCase();
+    const userRole = localStorage.getItem("userRole")?.toLowerCase();
 
-    // User can only set templates as active if template role matches user role
-    return template.role.toLowerCase() === userRole;
+    // Admins can set ANY template as active (both admin and teacher templates)
+    // Teachers can only set templates with role = 'teacher' as active
+    if (userRole === "admin") {
+      return true; // Admins can use any template
+    }
+
+    // For non-admins, template role must match user role
+    return template.role?.toLowerCase() === userRole;
   };
 
   return (
-    <div className="min-h-screen bg-background p-6 space-y-6">
+    <div className="bg-background p-6 space-y-6 flex flex-col flex-1">
       {/* Filters and Create Button in Single Row */}
-      <Card className="p-0 bg-transparent border-none">
-        <CardContent className="p-0">
-          <div className="flex items-center gap-4">
-            {/* Search */}
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search templates..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-
-            {/* Type Filter */}
-            <Select value={filterType} onValueChange={setFilterType}>
-              <SelectTrigger className="w-[200px]" size="lg">
-                <SelectValue placeholder="Filter by type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="student_invitation">Student Invitation</SelectItem>
-                <SelectItem value="teacher_invitation">Teacher Invitation</SelectItem>
-                <SelectItem value="exam_reminder">Exam Reminder</SelectItem>
-                <SelectItem value="results_notification">Results Notification</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Visibility Filter */}
-            <Select value={filterVisibility} onValueChange={setFilterVisibility}>
-              <SelectTrigger className="w-[180px]" size="lg">
-                <SelectValue placeholder="Filter by visibility" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Visibility</SelectItem>
-                <SelectItem value="public">Public</SelectItem>
-                <SelectItem value="private">Private</SelectItem>
-                <SelectItem value="custom">Custom</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Create Button */}
-            <Button onClick={() => setCreateDialogOpen(true)} className="whitespace-nowrap">
-              <Plus className="mr-2 h-4 w-4" />
-              Create Template
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <EmailTemplateFilters
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        filterType={filterType}
+        onFilterTypeChange={setFilterType}
+        filterVisibility={filterVisibility}
+        onFilterVisibilityChange={setFilterVisibility}
+        onCreateClick={() => setCreateDialogOpen(true)}
+      />
 
       {/* Templates Grid */}
       {loading ? (
-        <div className="flex items-center justify-center h-64">
+        <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       ) : filteredTemplates.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center h-64">
+        <Card className="h-full bg-transparent border-none">
+          <CardContent className="flex h-full flex-col items-center justify-center">
             <Mail className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground text-center">
               {searchQuery || filterType !== "all" || filterVisibility !== "all"
@@ -392,62 +420,17 @@ export default function AdminEmailTemplatesPage() {
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                <Card
-                  className="relative h-full flex flex-col group hover:shadow-lg transition-all duration-300 cursor-pointer hover:scale-[1.02]"
-                  onClick={() => {
-                    if (template.is_default) {
-                      const { id, ...rest } = template;
-                      const templateCopy = {
-                        ...rest,
-                        template_name: template.template_name,
-                        is_default: false,
-                      };
-                      setEditTemplate(templateCopy as any);
-                    } else {
-                      setEditTemplate(template);
-                    }
-                  }}
-                >
-                  {/* Hover Edit Icon */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (template.is_default) {
-                        const { id, ...rest } = template;
-                        const templateCopy = {
-                          ...rest,
-                          template_name: template.template_name,
-                          is_default: false,
-                        };
-                        setEditTemplate(templateCopy as any);
-                      } else {
-                        setEditTemplate(template);
-                      }
-                    }}
-                    className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 hover:bg-primary/10 rounded-full z-10"
-                  >
-                    <Pencil className="h-4 w-4 text-muted-foreground hover:text-primary" />
-                  </button>
-
-                  {/* Active Badge */}
-                  {activeTemplateId === template.id && (
-                    <div className="absolute top-4 right-4">
-                      <Badge variant="default" className="gap-1">
-                        <Star className="h-3 w-3 fill-current" />
-                        Active
-                      </Badge>
-                    </div>
-                  )}
-
+                <Card className="relative h-full flex flex-col group hover:shadow-lg transition-all duration-300">
                   <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 pr-10">
-                        <CardTitle className="text-lg">{template.template_name}</CardTitle>
-                        {template.is_default && (
-                          <Badge variant="secondary" className="mt-2">
-                            System Default
-                          </Badge>
-                        )}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="text-base">
+                          {template.template_name}
+                        </CardTitle>
+                      </div>
+                      {/* Visibility Icon */}
+                      <div className="flex-shrink-0">
+                        {getVisibilityIcon(template.visibility)}
                       </div>
                     </div>
                     <CardDescription className="line-clamp-2">
@@ -455,58 +438,102 @@ export default function AdminEmailTemplatesPage() {
                     </CardDescription>
                   </CardHeader>
 
-                  <CardContent className="flex-1 space-y-3">
-                    {/* Type Badge */}
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">{getTypeLabel(template.template_type)}</span>
-                    </div>
-
-                    {/* Visibility Badge */}
-                    <div className="flex items-center gap-2">
-                      {getVisibilityIcon(template.visibility)}
-                      <span className="text-sm capitalize">
-                        {getVisibilityLabel(template.visibility)}
-                        {template.visibility === "custom" &&
-                          ` (${template.allowed_user_ids?.length || 0} users)`}
-                      </span>
+                  <CardContent className="flex-1 space-y-1">
+                    {/* Type Badge and System Default/Custom Badge */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">
+                          {getTypeLabel(template.template_type)}
+                        </span>
+                      </div>
+                      {template.is_default ? (
+                        <Badge variant="secondary" className="text-xs">
+                          System Default
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800"
+                        >
+                          Custom
+                        </Badge>
+                      )}
                     </div>
 
                     {/* Creator Info */}
-                    <div className="text-sm text-muted-foreground">
-                      {template.is_default ? (
-                        <span>System Template</span>
-                      ) : template.creator ? (
+                    {template.creator && (
+                      <div className="text-sm text-muted-foreground">
                         <div className="flex items-center gap-1">
                           <span>
-                            By {template.creator.first_name} {template.creator.last_name}
+                            By {template.creator.first_name}{" "}
+                            {template.creator.last_name}
                           </span>
                           {template.creator.deleted && (
                             <UserX className="h-3 w-3 text-red-600 dark:text-red-400" />
                           )}
                         </div>
-                      ) : (
-                        <span>Unknown creator</span>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </CardContent>
 
-                  <CardFooter className="flex gap-2">
-                    {/* Set Active Button - only show if template role matches user role */}
-                    {activeTemplateId !== template.id && canSetActiveTemplate(template) && (
+                  <CardFooter className="flex gap-3">
+                    {/* Set Active Button - shows active state or allows setting active */}
+                    {canSetActiveTemplate(template) && template.id && (
                       <Button
-                        variant="outline"
+                        variant={
+                          isTemplateActive(template) ? "default" : "outline"
+                        }
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleSetActiveTemplate(template.id);
+                          if (!isTemplateActive(template) && !settingActiveId) {
+                            handleSetActiveTemplate(
+                              template.id!,
+                              template.template_type
+                            );
+                          }
                         }}
-                        className="flex-1"
+                        disabled={settingActiveId === template.id}
+                        className={
+                          isTemplateActive(template)
+                            ? "flex-1 cursor-default"
+                            : "flex-1 cursor-pointer hover:bg-primary hover:text-white transition-all duration-200 hover:scale-105"
+                        }
                       >
-                        <StarOff className="mr-2 h-4 w-4" />
-                        Set Active
+                        {settingActiveId === template.id ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Setting...
+                          </>
+                        ) : isTemplateActive(template) ? (
+                          <>
+                            <Star className="mr-2 h-4 w-4 fill-current" />
+                            Active
+                          </>
+                        ) : (
+                          <>
+                            <StarOff className="h-4 w-4" />
+                            Set Active
+                          </>
+                        )}
                       </Button>
                     )}
+
+                    {/* Edit Button */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Admins can edit default templates directly
+                        setEditTemplate(template);
+                      }}
+                      className="flex-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-all duration-200 hover:scale-105"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Edit
+                    </Button>
 
                     {/* Delete Button */}
                     {canDeleteTemplate(template) && (
@@ -518,8 +545,10 @@ export default function AdminEmailTemplatesPage() {
                           setTemplateToDelete(template);
                           setDeleteDialogOpen(true);
                         }}
+                        className="flex-1 cursor-pointer hover:bg-destructive hover:text-white transition-all duration-200 hover:scale-105"
                       >
                         <Trash2 className="h-4 w-4" />
+                        Delete
                       </Button>
                     )}
                   </CardFooter>
@@ -551,16 +580,18 @@ export default function AdminEmailTemplatesPage() {
 
       {/* Delete Confirmation Dialog */}
       <WarningDialog
-        isOpen={deleteDialogOpen}
-        onClose={() => {
-          setDeleteDialogOpen(false);
-          setTemplateToDelete(null);
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) {
+            setTemplateToDelete(null);
+          }
         }}
         onConfirm={handleDeleteTemplate}
         title="Delete Email Template"
         description={`Are you sure you want to delete "${templateToDelete?.template_name}"? This action cannot be undone.`}
         confirmText="Delete"
-        confirmVariant="destructive"
+        variant="destructive"
       />
     </div>
   );

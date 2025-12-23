@@ -14,75 +14,122 @@ function generateInvitationToken(): string {
   return token;
 }
 
-// Send invitation email
+// Send invitation email using template system
 async function sendTeacherInvitationEmail(
   email: string,
   firstName: string,
-  token: string
+  lastName: string,
+  token: string,
+  adminUserId: string,
+  institutionName?: string,
+  departmentId?: string
 ): Promise<void> {
-  const signupUrl = `${process.env.NEXT_PUBLIC_APP_URL}/teacher-invitation/${token}`;
-  
-  // Create transporter using environment variables
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT),
-    secure: false, // true for 465, false for other ports
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+  const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL}/teacher-invitation/${token}`;
 
-  const mailOptions = {
-    from: process.env.SMTP_USER,
-    to: email,
-    subject: "Complete Your Teacher Account Setup - Online Exam Platform",
-    text: `Hi ${firstName},
-
-You've been invited to join our Online Exam Platform as a teacher.
-
-To complete your registration, please click on the link below:
-${signupUrl}
-
-This invitation expires in 7 days. If you did not request this invitation, please ignore this email.
-
-Best regards,
-The Exam Platform Team`,
-    html: `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2 style="color: #333;">Teacher Account Invitation</h2>
-      <p>Hi <strong>${firstName}</strong>,</p>
-      
-      <p>You've been invited to join our <strong>Online Exam Platform</strong> as a teacher.</p>
-      
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${signupUrl}" 
-           style="background-color: #0070f3; color: white; padding: 12px 24px; 
-                  text-decoration: none; border-radius: 5px; display: inline-block;">
-          Complete Your Registration
-        </a>
-      </div>
-      
-      <p><strong>Important:</strong> This invitation expires in 7 days.</p>
-      
-      <p>If you did not request this invitation, please ignore this email.</p>
-      
-      <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
-      
-      <p style="font-size: 12px; color: #666;">
-        If the button above doesn't work, please copy and paste the following link into your browser:<br>
-        <a href="${signupUrl}" style="color: #0070f3; word-break: break-all;">${signupUrl}</a>
-      </p>
-      
-      <p>Best regards,<br><strong>The Exam Platform Team</strong></p>
-    </div>`,
-  };
+  // Calculate expiration date (7 days from now)
+  const expirationDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString();
 
   try {
+    // Fetch admin's active teacher invitation template
+    const { data: adminProfile } = await supabase
+      .from('user_profiles')
+      .select('active_teacher_invitation_template_id')
+      .eq('id', adminUserId)
+      .single();
+
+    let templateId = adminProfile?.active_teacher_invitation_template_id;
+
+    // If no active template, fetch default teacher invitation template
+    if (!templateId) {
+      const { data: defaultTemplate } = await supabase
+        .from('email_templates')
+        .select('id')
+        .eq('template_type', 'teacher_invitation')
+        .eq('is_default', true)
+        .eq('role', 'admin')
+        .single();
+
+      templateId = defaultTemplate?.id;
+    }
+
+    // If still no template found, throw error
+    if (!templateId) {
+      throw new Error('No teacher invitation template found');
+    }
+
+    // Fetch the template
+    const { data: template } = await supabase
+      .from('email_templates')
+      .select('*')
+      .eq('id', templateId)
+      .single();
+
+    if (!template) {
+      throw new Error('Template not found');
+    }
+
+    // Fetch admin info for "invited_by" variable
+    const { data: adminInfo } = await supabase
+      .from('user_profiles')
+      .select('first_name, last_name')
+      .eq('id', adminUserId)
+      .single();
+
+    const invitedBy = adminInfo
+      ? `${adminInfo.first_name || ''} ${adminInfo.last_name || ''}`.trim() || 'Admin'
+      : 'Admin';
+
+    // Fetch department name if departmentId is provided
+    let departmentName = 'Not assigned';
+    if (departmentId) {
+      const { data: departmentData } = await supabase
+        .from('departments')
+        .select('name')
+        .eq('id', departmentId)
+        .single();
+
+      if (departmentData) {
+        departmentName = departmentData.name;
+      }
+    }
+
+    // Prepare template variables
+    const variables = {
+      firstName,
+      lastName,
+      institutionName: institutionName || 'Our Institution',
+      expirationDate,
+      inviteUrl,
+      invitedBy,
+      teacherName: `${firstName} ${lastName}`,
+      departmentName,
+    };
+
+    // Render the email template
+    const renderedEmail = renderEmailTemplate(template as EmailTemplate, variables);
+
+    // Create transporter using environment variables
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT),
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+
+    const mailOptions = {
+      from: process.env.SMTP_USER,
+      to: email,
+      subject: renderedEmail.subject,
+      html: renderedEmail.html,
+    };
+
     await transporter.sendMail(mailOptions);
-    console.log(`Invitation email sent successfully to ${email}`);
+    console.log(`Teacher invitation email sent successfully to ${email} using template: ${template.template_name}`);
   } catch (error) {
-    console.error("Failed to send invitation email:", error);
+    console.error("Failed to send teacher invitation email:", error);
     throw error;
   }
 }
@@ -161,6 +208,22 @@ async function createTeacherInvitation(
       .eq("id", createdBy)
       .single();
 
+    const institutionId = institution || adminProfile?.institution_id;
+
+    // Fetch institution name for email template
+    let institutionName = 'Our Institution';
+    if (institutionId) {
+      const { data: institutionData } = await supabase
+        .from("institutions")
+        .select("name")
+        .eq("id", institutionId)
+        .single();
+
+      if (institutionData) {
+        institutionName = institutionData.name;
+      }
+    }
+
     // Create invitation record
     const { data: invitation, error: invitationError } = await supabase
       .from("teacher_invitations")
@@ -170,7 +233,7 @@ async function createTeacherInvitation(
         admin_id: createdBy,
         first_name: firstName,
         last_name: lastName,
-        institution: institution || adminProfile?.institution_id,
+        institution: institutionId,
         department: department || adminProfile?.department_id,
         status: "pending",
         expires_at: invitationExpiresAt.toISOString(),
@@ -185,8 +248,16 @@ async function createTeacherInvitation(
       };
     }
 
-    // Send invitation email
-    await sendTeacherInvitationEmail(email, firstName, token);
+    // Send invitation email using template system
+    await sendTeacherInvitationEmail(
+      email,
+      firstName,
+      lastName,
+      token,
+      createdBy,
+      institutionName,
+      department || adminProfile?.department_id
+    );
 
     return {
       success: true,

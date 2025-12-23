@@ -32,10 +32,10 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  PieLabelRenderProps,
 } from "recharts";
 import {
   Activity,
-  Users,
   FileText,
   AlertTriangle,
   Mail,
@@ -490,9 +490,9 @@ export default function UsageReportsPage() {
                       cx="50%"
                       cy="45%"
                       labelLine={false}
-                      label={(props: any) => {
-                        const { type, count } = props;
-                        return count > 0 ? `${type}: ${count}` : null;
+                      label={(props: PieLabelRenderProps) => {
+                        const payload = props.payload as { type: string; count: number };
+                        return payload.count > 0 ? `${payload.type}: ${payload.count}` : null;
                       }}
                       outerRadius={95}
                       dataKey="count"
@@ -507,9 +507,10 @@ export default function UsageReportsPage() {
                     <Legend
                       verticalAlign="bottom"
                       height={36}
-                      formatter={(value, entry: any) => {
+                      formatter={(value, entry) => {
+                        const payload = entry.payload as unknown as { type: string };
                         const item = data.proctoringViolations.find(
-                          (d) => d.type === entry.payload.type
+                          (d) => d.type === payload?.type
                         );
                         return `${value}: ${item?.count || 0}`;
                       }}

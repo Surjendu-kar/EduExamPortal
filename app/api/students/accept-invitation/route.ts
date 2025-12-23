@@ -94,7 +94,46 @@ export async function POST(request: Request) {
       invitation.departments?.institution_id ||
       null;
 
-    // Create user profile
+    // Fetch default email templates for student role
+    const { data: defaultTemplates } = await supabase
+      .from('email_templates')
+      .select('id, template_type')
+      .eq('is_default', true)
+      .in('template_type', [
+        'student_invitation_with_exam',
+        'student_invitation_general',
+        'exam_reminder',
+        'results_notification'
+      ]);
+
+    // Map default templates to their respective column names
+    const templateMapping: Record<string, string | null> = {
+      active_student_invitation_with_exam_template_id: null,
+      active_student_invitation_general_template_id: null,
+      active_exam_reminder_template_id: null,
+      active_results_notification_template_id: null,
+    };
+
+    if (defaultTemplates) {
+      defaultTemplates.forEach(template => {
+        switch (template.template_type) {
+          case 'student_invitation_with_exam':
+            templateMapping.active_student_invitation_with_exam_template_id = template.id;
+            break;
+          case 'student_invitation_general':
+            templateMapping.active_student_invitation_general_template_id = template.id;
+            break;
+          case 'exam_reminder':
+            templateMapping.active_exam_reminder_template_id = template.id;
+            break;
+          case 'results_notification':
+            templateMapping.active_results_notification_template_id = template.id;
+            break;
+        }
+      });
+    }
+
+    // Create user profile with default templates
     const { error: profileError } = await supabase
       .from('user_profiles')
       .insert({
@@ -107,6 +146,7 @@ export async function POST(request: Request) {
         department_id: invitation.department_id,
         profile_completed: true,
         created_at: new Date().toISOString(),
+        ...templateMapping,
       });
 
     if (profileError) {

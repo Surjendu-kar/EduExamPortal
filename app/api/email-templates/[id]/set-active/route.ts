@@ -40,8 +40,10 @@ export async function POST(
       return NextResponse.json({ error: 'Template not found' }, { status: 404 });
     }
 
-    // Role validation: user can only activate templates matching their role
-    if (template.role !== profile.role) {
+    // Role validation:
+    // - Admins can activate ANY template (both admin and teacher templates)
+    // - Non-admins can only activate templates matching their role
+    if (profile.role !== 'admin' && template.role !== profile.role) {
       return NextResponse.json({
         error: `Cannot set this template as active. This template is for ${template.role} users only.`,
         code: 'ROLE_MISMATCH'
@@ -49,22 +51,42 @@ export async function POST(
     }
 
     // Check if user can access this template using the helper function
-    const { data: canAccess } = await supabase.rpc('can_access_template', {
-      p_template_id: templateId,
-      p_user_id: user.id
-    });
+    // Skip this check for admins (they have access to all templates)
+    if (profile.role !== 'admin') {
+      const { data: canAccess } = await supabase.rpc('can_access_template', {
+        p_template_id: templateId,
+        p_user_id: user.id
+      });
 
-    if (!canAccess) {
-      return NextResponse.json({
-        error: 'You do not have permission to use this template'
-      }, { status: 403 });
+      if (!canAccess) {
+        return NextResponse.json({
+          error: 'You do not have permission to use this template'
+        }, { status: 403 });
+      }
     }
 
-    // Update user's active template
+    // Map template type to the correct active template column
+    const templateTypeToColumn: Record<string, string> = {
+      'student_invitation_with_exam': 'active_student_invitation_with_exam_template_id',
+      'student_invitation_general': 'active_student_invitation_general_template_id',
+      'teacher_invitation': 'active_teacher_invitation_template_id',
+      'exam_reminder': 'active_exam_reminder_template_id',
+      'results_notification': 'active_results_notification_template_id',
+    };
+
+    const columnName = templateTypeToColumn[template.template_type];
+
+    if (!columnName) {
+      return NextResponse.json({
+        error: `Unknown template type: ${template.template_type}`
+      }, { status: 400 });
+    }
+
+    // Update user's active template for this specific type
     const { error: updateError } = await supabase
       .from('user_profiles')
       .update({
-        active_invitation_template_id: templateId,
+        [columnName]: templateId,
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id);

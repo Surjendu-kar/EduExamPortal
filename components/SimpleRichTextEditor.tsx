@@ -23,7 +23,6 @@ interface SimpleRichTextEditorProps {
 export const SimpleRichTextEditor: React.FC<SimpleRichTextEditorProps> = ({
   value,
   onChange,
-  placeholder = "Compose your message...",
   className = "",
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);

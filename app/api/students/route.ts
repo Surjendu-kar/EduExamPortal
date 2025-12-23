@@ -80,21 +80,30 @@ async function sendStudentInvitationEmail(
   let html = '';
 
   try {
-    // Fetch user's active email template
+    // Determine which template type to use based on whether exams are assigned
+    const templateType = hasExams ? 'student_invitation_with_exam' : 'student_invitation_general';
+    const activeTemplateColumn = hasExams
+      ? 'active_student_invitation_with_exam_template_id'
+      : 'active_student_invitation_general_template_id';
+
+    // Fetch user's active email template for the appropriate type
     const { data: userProfile } = await supabase
       .from('user_profiles')
-      .select('active_invitation_template_id')
+      .select(activeTemplateColumn)
       .eq('id', userId)
       .single();
 
     let template: EmailTemplate | null = null;
 
-    if (userProfile?.active_invitation_template_id) {
+    // Get the active template ID from the correct column
+    const activeTemplateId = userProfile?.[activeTemplateColumn as keyof typeof userProfile];
+
+    if (activeTemplateId) {
       // Fetch the active template
       const { data: templateData } = await supabase
         .from('email_templates')
         .select('*')
-        .eq('id', userProfile.active_invitation_template_id)
+        .eq('id', activeTemplateId as string)
         .single();
 
       if (templateData) {
@@ -102,13 +111,13 @@ async function sendStudentInvitationEmail(
       }
     }
 
-    // If no active template, try to fetch a default template
+    // If no active template, try to fetch a default template for the appropriate type
     if (!template) {
       const { data: defaultTemplate } = await supabase
         .from('email_templates')
         .select('*')
         .eq('is_default', true)
-        .eq('template_type', 'student_invitation')
+        .eq('template_type', templateType)
         .single();
 
       if (defaultTemplate) {

@@ -42,7 +42,13 @@ export default function TeacherEmailTemplatesPage() {
   const [editTemplate, setEditTemplate] = useState<EmailTemplate | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [templateToDelete, setTemplateToDelete] = useState<EmailTemplate | null>(null);
-  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+  const [activeTemplateIds, setActiveTemplateIds] = useState<Record<string, string | null>>({
+    'student_invitation_with_exam': null,
+    'student_invitation_general': null,
+    'teacher_invitation': null,
+    'exam_reminder': null,
+    'results_notification': null,
+  });
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [settingActiveId, setSettingActiveId] = useState<string | null>(null);
 
@@ -91,14 +97,28 @@ export default function TeacherEmailTemplatesPage() {
       if (user) {
         const { data: profile } = await supabase
           .from('user_profiles')
-          .select('active_invitation_template_id')
+          .select(`
+            active_student_invitation_with_exam_template_id,
+            active_student_invitation_general_template_id,
+            active_teacher_invitation_template_id,
+            active_exam_reminder_template_id,
+            active_results_notification_template_id
+          `)
           .eq('id', user.id)
           .single();
 
-        setActiveTemplateId(profile?.active_invitation_template_id || null);
+        if (profile) {
+          setActiveTemplateIds({
+            'student_invitation_with_exam': profile.active_student_invitation_with_exam_template_id || null,
+            'student_invitation_general': profile.active_student_invitation_general_template_id || null,
+            'teacher_invitation': profile.active_teacher_invitation_template_id || null,
+            'exam_reminder': profile.active_exam_reminder_template_id || null,
+            'results_notification': profile.active_results_notification_template_id || null,
+          });
+        }
       }
     } catch (error) {
-      console.error("Error fetching active template:", error);
+      console.error("Error fetching active templates:", error);
     }
   };
 
@@ -175,7 +195,7 @@ export default function TeacherEmailTemplatesPage() {
     });
 
     try {
-      const response = await fetch(`/api/email-templates/${template.id!}`, {
+      const response = await fetch(`/api/email-templates/${template.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(template),
@@ -192,11 +212,16 @@ export default function TeacherEmailTemplatesPage() {
         setEditTemplate(null);
         return { success: true };
       } else {
-        toast.error(data.error || "Failed to update template", {
+        // Show specific error message if it's a permission issue with default templates
+        const errorMessage = response.status === 403 && data.error?.includes('default')
+          ? "Only admins have permission to edit system default templates."
+          : data.error || "Failed to update template";
+
+        toast.error(errorMessage, {
           id: loadingToast,
           duration: 4000,
         });
-        return { success: false, error: data.error || "Failed to update template" };
+        return { success: false, error: errorMessage };
       }
     } catch (error) {
       console.error("Error updating template:", error);
@@ -231,7 +256,7 @@ export default function TeacherEmailTemplatesPage() {
     }
   };
 
-  const handleSetActiveTemplate = async (templateId: string) => {
+  const handleSetActiveTemplate = async (templateId: string, templateType: string) => {
     setSettingActiveId(templateId);
     const loadingToast = toast.loading("Setting as active template...", {
       duration: Infinity,
@@ -249,7 +274,11 @@ export default function TeacherEmailTemplatesPage() {
           id: loadingToast,
           duration: 4000,
         });
-        setActiveTemplateId(templateId);
+        // Update the active template ID for this specific type
+        setActiveTemplateIds(prev => ({
+          ...prev,
+          [templateType]: templateId
+        }));
         fetchActiveTemplate();
       } else {
         toast.error(data.error || "Failed to set active template", {
@@ -266,6 +295,10 @@ export default function TeacherEmailTemplatesPage() {
     } finally {
       setSettingActiveId(null);
     }
+  };
+
+  const isTemplateActive = (template: EmailTemplate) => {
+    return activeTemplateIds[template.template_type] === template.id;
   };
 
   const getVisibilityIcon = (visibility: string) => {
@@ -292,7 +325,8 @@ export default function TeacherEmailTemplatesPage() {
 
   const getTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
-      student_invitation: "Student Invitation",
+      student_invitation_with_exam: "Student Invitation (With Exam)",
+      student_invitation_general: "Student Invitation (General)",
       teacher_invitation: "Teacher Invitation",
       exam_reminder: "Exam Reminder",
       results_notification: "Results Notification",
@@ -316,7 +350,13 @@ export default function TeacherEmailTemplatesPage() {
     // Get user role from localStorage
     const userRole = localStorage.getItem('userRole')?.toLowerCase();
 
-    // User can only set templates as active if template role matches user role
+    // Admins can set ANY template as active (both admin and teacher templates)
+    // Teachers can only set templates with role = 'teacher' as active
+    if (userRole === 'admin') {
+      return true; // Admins can use any template
+    }
+
+    // For non-admins, template role must match user role
     return template.role?.toLowerCase() === userRole;
   };
 
@@ -379,15 +419,19 @@ export default function TeacherEmailTemplatesPage() {
                   </CardHeader>
 
                   <CardContent className="flex-1 space-y-1">
-                    {/* Type Badge and System Default Badge */}
+                    {/* Type Badge and System Default/Custom Badge */}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Mail className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm">{getTypeLabel(template.template_type)}</span>
                       </div>
-                      {template.is_default && (
+                      {template.is_default ? (
                         <Badge variant="secondary" className="text-xs">
                           System Default
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800">
+                          Custom
                         </Badge>
                       )}
                     </div>
@@ -411,17 +455,17 @@ export default function TeacherEmailTemplatesPage() {
                     {/* Set Active Button - shows active state or allows setting active */}
                     {canSetActiveTemplate(template) && template.id && (
                       <Button
-                        variant={activeTemplateId === template.id ? "default" : "outline"}
+                        variant={isTemplateActive(template) ? "default" : "outline"}
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (activeTemplateId !== template.id && !settingActiveId) {
-                            handleSetActiveTemplate(template.id!);
+                          if (!isTemplateActive(template) && !settingActiveId) {
+                            handleSetActiveTemplate(template.id!, template.template_type);
                           }
                         }}
                         disabled={settingActiveId === template.id}
                         className={
-                          activeTemplateId === template.id
+                          isTemplateActive(template)
                             ? "flex-1 cursor-default"
                             : "flex-1 cursor-pointer hover:bg-primary hover:text-white transition-all duration-200 hover:scale-105"
                         }
@@ -431,7 +475,7 @@ export default function TeacherEmailTemplatesPage() {
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                             Setting...
                           </>
-                        ) : activeTemplateId === template.id ? (
+                        ) : isTemplateActive(template) ? (
                           <>
                             <Star className="mr-2 h-4 w-4 fill-current" />
                             Active
@@ -451,17 +495,7 @@ export default function TeacherEmailTemplatesPage() {
                       size="sm"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (template.is_default) {
-                          const { id, ...rest } = template;
-                          const templateCopy = {
-                            ...rest,
-                            template_name: template.template_name,
-                            is_default: false,
-                          };
-                          setEditTemplate(templateCopy as any);
-                        } else {
-                          setEditTemplate(template);
-                        }
+                        setEditTemplate(template);
                       }}
                       className="flex-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-all duration-200 hover:scale-105"
                     >

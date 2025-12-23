@@ -140,11 +140,15 @@ export async function GET(request: NextRequest) {
     const examStats = new Map();
 
     completedSessions.forEach((session) => {
-      const examId = session.exams.id;
+      // Supabase joins return arrays, so we need to access the first element
+      const exam = Array.isArray(session.exams) ? session.exams[0] : session.exams;
+      const examId = exam?.id;
+      if (!examId) return; // Skip if no exam data
+
       if (!examStats.has(examId)) {
         examStats.set(examId, {
           examId,
-          title: session.exams.title,
+          title: exam.title,
           totalScore: 0,
           maxScore: 0,
           attempts: 0,
@@ -368,15 +372,22 @@ export async function GET(request: NextRequest) {
     const studentStats = new Map();
 
     topStudents?.forEach((session) => {
+      // Supabase joins return arrays, so we need to access the first element
+      const userProfile = Array.isArray(session.user_profiles)
+        ? session.user_profiles[0]
+        : session.user_profiles;
+
       const userId = session.user_id;
+      if (!userId || !userProfile) return; // Skip if no user data
+
       if (!studentStats.has(userId)) {
-        const fullName = `${session.user_profiles.first_name || ""} ${
-          session.user_profiles.last_name || ""
+        const fullName = `${userProfile.first_name || ""} ${
+          userProfile.last_name || ""
         }`.trim() || "Unknown";
         studentStats.set(userId, {
           userId,
           name: fullName,
-          email: session.user_profiles.email,
+          email: userProfile.email,
           totalScore: 0,
           maxScore: 0,
           examsTaken: 0,

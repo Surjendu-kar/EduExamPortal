@@ -30,16 +30,13 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  AreaChart,
-  Area,
+  PieLabelRenderProps,
 } from "recharts";
 import {
   Users,
   GraduationCap,
   FileText,
   Activity,
-  TrendingUp,
-  BarChart3,
   Calendar,
 } from "lucide-react";
 import {
@@ -336,7 +333,9 @@ export default function PlatformStatsPage() {
         "November",
         "December",
       ];
-      return `📅 ${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+      return `📅 ${
+        monthNames[date.getMonth()]
+      } ${date.getDate()}, ${date.getFullYear()}`;
     } else {
       // Format: "2025-12" -> "December 2025"
       const [year, month] = value.split("-");
@@ -411,9 +410,7 @@ export default function PlatformStatsPage() {
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
                   <CardTitle>User Registration Trends</CardTitle>
-                  <CardDescription>
-                    {getTimeRangeDescription()}
-                  </CardDescription>
+                  <CardDescription>{getTimeRangeDescription()}</CardDescription>
                 </div>
                 <Select value={timeRange} onValueChange={setTimeRange}>
                   <SelectTrigger className="w-[180px]">
@@ -481,7 +478,7 @@ export default function PlatformStatsPage() {
                         padding: "4px 0",
                       }}
                       labelFormatter={formatTooltipLabel}
-                      formatter={(value: any, name: string) => {
+                      formatter={(value: number, name: string) => {
                         const icon = name === "Students" ? "👨‍🎓" : "👨‍🏫";
                         return [`${icon} ${value} joined`, name];
                       }}
@@ -570,12 +567,13 @@ export default function PlatformStatsPage() {
                       cx="50%"
                       cy="45%"
                       labelLine={false}
-                      label={(props: any) => {
-                        const { payload, percent } = props;
+                      label={(props: PieLabelRenderProps) => {
+                        const payload = props.payload as { status: string; count: number };
+                        const percent = props.percent || 0;
                         return payload.count > 0
-                          ? `${payload.status}: ${payload.count} (${(percent * 100).toFixed(
-                              0
-                            )}%)`
+                          ? `${payload.status}: ${payload.count} (${(
+                              percent * 100
+                            ).toFixed(0)}%)`
                           : null;
                       }}
                       outerRadius={95}
@@ -596,9 +594,10 @@ export default function PlatformStatsPage() {
                     <Legend
                       verticalAlign="bottom"
                       height={36}
-                      formatter={(value, entry: any) => {
+                      formatter={(value, entry) => {
+                        const payload = entry.payload as unknown as { status: string };
                         const item = data.examStatusDistribution.find(
-                          (d) => d.status === entry.payload.status
+                          (d) => d.status === payload?.status
                         );
                         return `${value}: ${item?.count || 0}`;
                       }}

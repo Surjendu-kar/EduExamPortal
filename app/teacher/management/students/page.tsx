@@ -482,7 +482,7 @@ export default function TeacherStudentsPage() {
     const [firstName, lastName] = student.name.split(" ");
     // Extract exam IDs from assignedExamsList
     const assignedExamIds = student.assignedExamsList?.map(exam => exam.exam_id) || [];
-    const completedExamIds = student.assignedExamsList?.filter(exam => exam.completion_status === 'completed').map(exam => exam.exam_id) || [];
+    const completedExamIds = student.assignedExamsList?.filter(exam => exam.status === 'completed').map(exam => exam.exam_id) || [];
 
     setEditingStudent({
       id: student.id,

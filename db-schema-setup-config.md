@@ -54,10 +54,26 @@ create table public.user_profiles (
   deleted boolean default false,
   created_at timestamp with time zone null default now(),
   updated_at timestamp with time zone null default now(),
+  -- Email template preferences (added 2025-12-22)
+  active_student_invitation_with_exam_template_id uuid references email_templates(id),
+  active_student_invitation_general_template_id uuid references email_templates(id),
+  active_teacher_invitation_template_id uuid references email_templates(id),
+  active_exam_reminder_template_id uuid references email_templates(id),
+  active_results_notification_template_id uuid references email_templates(id),
   constraint user_profiles_pkey primary key (id),
   constraint user_profiles_created_by_fkey foreign key (created_by) references auth.users (id),
   constraint user_profiles_id_fkey foreign key (id) references auth.users (id) on delete cascade
 );
+
+-- Create indexes for email template columns
+create index IF not exists idx_user_profiles_active_student_exam_template on public.user_profiles(active_student_invitation_with_exam_template_id);
+create index IF not exists idx_user_profiles_active_student_general_template on public.user_profiles(active_student_invitation_general_template_id);
+create index IF not exists idx_user_profiles_active_teacher_template on public.user_profiles(active_teacher_invitation_template_id);
+create index IF not exists idx_user_profiles_active_exam_reminder_template on public.user_profiles(active_exam_reminder_template_id);
+create index IF not exists idx_user_profiles_active_results_template on public.user_profiles(active_results_notification_template_id);
+create index IF not exists idx_user_profiles_institution on public.user_profiles(institution_id);
+create index IF not exists idx_user_profiles_department on public.user_profiles(department_id);
+create index IF not exists idx_user_profiles_deleted on public.user_profiles(deleted);
 ```
 
 ### Exams Table
@@ -336,7 +352,8 @@ create table public.email_templates (
     (
       template_type = any (
         array[
-          'student_invitation'::text,
+          'student_invitation_with_exam'::text,
+          'student_invitation_general'::text,
           'exam_reminder'::text,
           'results_notification'::text,
           'teacher_invitation'::text
@@ -1167,3 +1184,88 @@ FROM public.student_invitations si
 WHERE si.exam_id IS NOT NULL
 ON CONFLICT (student_email, exam_id) DO NOTHING;
 ```
+
+---
+
+## 12. Important Notes on Database Triggers
+
+### ⚠️ Email Template Default Assignment
+
+**Note:** As of 2025-12-23, the automatic email template assignment triggers have been **removed** because they were causing errors with outdated column names.
+
+**Previously (REMOVED):**
+```sql
+-- These triggers are NO LONGER USED
+DROP TRIGGER IF EXISTS set_default_template_on_user_creation ON user_profiles;
+DROP TRIGGER IF EXISTS trigger_assign_default_email_templates ON user_profiles;
+DROP FUNCTION IF EXISTS auto_set_default_template();
+DROP FUNCTION IF EXISTS assign_default_email_templates();
+```
+
+**Current Implementation:**
+Default email templates are now assigned **in the API layer** during user creation:
+- `app/api/students/accept-invitation/route.ts` - Handles student profile creation with default templates
+- `app/api/teachers/route.ts` - Could be enhanced similarly for teacher creation
+
+**Benefits of API-Level Assignment:**
+1. ✅ More maintainable - easier to debug and test
+2. ✅ Better error handling - can show specific errors to users
+3. ✅ No silent failures from outdated trigger code
+4. ✅ Explicit and visible in code reviews
+
+**If you want to re-enable triggers**, ensure they reference the correct columns:
+- `active_student_invitation_with_exam_template_id`
+- `active_student_invitation_general_template_id`
+- `active_teacher_invitation_template_id`
+- `active_exam_reminder_template_id`
+- `active_results_notification_template_id`
+
+---
+
+## 13. Email Template System
+
+### Template Types
+
+The platform supports 5 types of email templates:
+
+| Template Type | Purpose | Required Variables |
+|--------------|---------|-------------------|
+| `student_invitation_with_exam` | Student invitation WITH exam assignment | `{firstName}`, `{lastName}`, `{examTitle}`, `{institutionName}`, `{expirationDate}`, `{inviteUrl}` |
+| `student_invitation_general` | Student invitation WITHOUT exam assignment | `{firstName}`, `{lastName}`, `{institutionName}`, `{expirationDate}`, `{inviteUrl}` |
+| `teacher_invitation` | Teacher invitation | `{firstName}`, `{lastName}`, `{institutionName}`, `{departmentName}`, `{invitedBy}`, `{expirationDate}`, `{inviteUrl}` |
+| `exam_reminder` | Exam reminder notification | `{firstName}`, `{lastName}`, `{examTitle}`, `{startTime}` |
+| `results_notification` | Exam results notification | `{firstName}`, `{lastName}`, `{examTitle}`, `{score}`, `{totalScore}` |
+
+### Variable Format Support
+
+The email rendering system supports **both single and double brace formats**:
+- Single braces: `{firstName}`, `{lastName}`
+- Double braces: `{{firstName}}`, `{{lastName}}`
+- Snake case: `{{teacher_name}}`, `{{invited_by}}`, `{{department_name}}`
+
+This provides backward compatibility with existing templates.
+
+### Active Template Resolution
+
+When sending emails, the system follows this priority:
+1. User's active template (from `user_profiles.active_*_template_id`)
+2. Default template for that type (`is_default = true`)
+3. Fallback to hardcoded HTML (if no templates exist)
+
+---
+
+## 14. Schema Version History
+
+**2025-12-23:**
+- Removed broken email template assignment triggers
+- Moved default template assignment to API layer
+- Updated `email_templates` check constraint to include new template types
+
+**2025-12-22:**
+- Added 5 email template columns to `user_profiles` table
+- Split `student_invitation` into `student_invitation_with_exam` and `student_invitation_general`
+- Added indexes for email template foreign keys
+
+**Earlier:**
+- Initial schema setup with basic tables and RLS policies
+- Added `student_exam_assignments` table for multi-exam support

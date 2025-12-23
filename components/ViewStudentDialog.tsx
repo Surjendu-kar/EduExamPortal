@@ -212,7 +212,7 @@ export const ViewStudentDialog = ({
                       },
                       expired: {
                         variant: 'destructive' as const,
-                        className: 'bg-red-100 text-red-800 border-red-200',
+                        className: 'bg-red-100 text-red-100 border-red-200',
                         text: 'Expired'
                       }
                     };

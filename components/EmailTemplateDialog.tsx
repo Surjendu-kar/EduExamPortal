@@ -43,7 +43,7 @@ const getDefaultTemplateContent = (
   templateType: string
 ): { subject: string; main_message: string } => {
   switch (templateType) {
-    case "student_invitation":
+    case "student_invitation_with_exam":
       return {
         subject: "You're Invited: {examTitle} at {institutionName}",
         main_message: `<p>Dear {firstName} {lastName},</p>
@@ -56,6 +56,22 @@ const getDefaultTemplateContent = (
 </ul>
 <p>Please make sure you have a stable internet connection and a quiet environment for the exam.</p>
 <p>Good luck!</p>`,
+      };
+    case "student_invitation_general":
+      return {
+        subject: "Welcome to {institutionName} - Student Account Invitation",
+        main_message: `<p>Dear {firstName} {lastName},</p>
+<p>You have been invited to join <strong>{institutionName}</strong> as a student!</p>
+<p><strong>Getting Started:</strong></p>
+<ul>
+<li>Click the link below to create your account</li>
+<li>Complete your profile</li>
+<li>Your teacher will assign exams to you once you're registered</li>
+<li>You'll receive notifications when new exams are available</li>
+</ul>
+<p>Invitation link: {inviteUrl}</p>
+<p>This invitation expires: {expirationDate}</p>
+<p>We look forward to having you on our platform!</p>`,
       };
     case "teacher_invitation":
       return {
@@ -138,10 +154,10 @@ export const EmailTemplateDialog = ({
       };
     } else {
       // For new templates, populate with defaults
-      const defaultContent = getDefaultTemplateContent("student_invitation");
+      const defaultContent = getDefaultTemplateContent("student_invitation_with_exam");
       return {
         template_name: "",
-        template_type: "student_invitation",
+        template_type: "student_invitation_with_exam",
         description: "",
         subject: defaultContent.subject,
         main_message: defaultContent.main_message,
@@ -199,7 +215,7 @@ export const EmailTemplateDialog = ({
     ];
 
     if (
-      formData.template_type === "student_invitation" ||
+      formData.template_type === "student_invitation_with_exam" ||
       formData.template_type === "exam_reminder" ||
       formData.template_type === "results_notification"
     ) {
@@ -286,10 +302,10 @@ export const EmailTemplateDialog = ({
   };
 
   const resetForm = () => {
-    const defaultContent = getDefaultTemplateContent("student_invitation");
+    const defaultContent = getDefaultTemplateContent("student_invitation_with_exam");
     setFormData({
       template_name: "",
-      template_type: "student_invitation",
+      template_type: "student_invitation_with_exam",
       description: "",
       subject: defaultContent.subject,
       main_message: defaultContent.main_message,
@@ -349,7 +365,7 @@ export const EmailTemplateDialog = ({
           layoutId="email-template-dialog"
           className={
             currentStep === 1
-              ? "min-w-[700px] max-h-[60vh]"
+              ? "min-w-[850px] max-h-[60vh]"
               : "min-w-[850px] max-h-[85vh]"
           }
         >
@@ -415,8 +431,11 @@ export const EmailTemplateDialog = ({
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="student_invitation">
-                          Student Invitation
+                        <SelectItem value="student_invitation_with_exam">
+                          Student Invitation (With Exam)
+                        </SelectItem>
+                        <SelectItem value="student_invitation_general">
+                          Student Invitation (General)
                         </SelectItem>
                         <SelectItem value="teacher_invitation">
                           Teacher Invitation
